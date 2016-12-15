@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"git.xiaojukeji.com/QaTools/omega-go/src/utils/gostream"
+	"github.com/l0vest0rm/gostream"
 )
 
 type WordMsg struct {

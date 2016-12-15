@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"git.xiaojukeji.com/QaTools/omega-go/src/utils/go-hbase"
-	"git.xiaojukeji.com/QaTools/omega-go/src/utils/gostream"
+	"github.com/l0vest0rm/go-hbase"
+	"github.com/l0vest0rm/gostream"
 	log "github.com/cihub/seelog"
 )
 

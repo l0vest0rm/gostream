@@ -1,7 +1,7 @@
 package kc
 
 import (
-	"git.xiaojukeji.com/QaTools/omega-go/src/utils/gostream"
+	"github.com/l0vest0rm/gostream"
 	"github.com/Shopify/sarama"
 	log "github.com/cihub/seelog"
 	"github.com/wvanbergen/kafka/consumergroup"

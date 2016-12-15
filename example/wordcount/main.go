@@ -1,7 +1,7 @@
 package main
 
 import (
-	"git.xiaojukeji.com/QaTools/omega-go/src/utils/gostream"
+	"github.com/l0vest0rm/gostream"
 )
 
 func main() {
