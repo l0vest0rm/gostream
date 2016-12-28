@@ -81,7 +81,7 @@ func (t *KafkaProducerBolt) Prepare(index int, context gostream.TopologyContext,
     config.Producer.RequiredAcks = sarama.NoResponse // Wait for all in-sync replicas to ack the message
     config.Producer.Compression = sarama.CompressionGZIP
     //按照key hash
-    config.Producer.Partitioner = sarama.NewRoundRobinPartitioner
+    config.Producer.Partitioner = sarama.NewRandomPartitioner
     t.producer, err = sarama.NewSyncProducer(brokers, config)
     if err != nil {
         log.Errorf("KafkaProducerBolt,Prepare,err:%s",err.Error())
