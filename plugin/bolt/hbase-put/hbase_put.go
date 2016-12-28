@@ -75,18 +75,26 @@ func (t *HbasePutBolt) Cleanup() {
 }
 
 func (t *HbasePutBolt) Execute(message gostream.Message) {
+	var err error
+    var succ bool
 	msg := message.(*HbasePutMessage)
 	//log.Debugf("BoltHbasePut Execute,index:%d", msg.Index)
 	for {
-		succ, err := t.hc.Put(msg.Table, msg.Put)
-		if err != nil {
-			log.Errorf("HbasePutBolt,Execute,Put,index:%d,err:%s", t.Index, err.Error())
-		} else if !succ {
-			log.Errorf("HbasePutBolt,Execute,Put,index:%d,fail", t.Index)
-		} else {
-			return
+		if t.hc != nil {
+            succ, err = t.hc.Put(msg.Table, msg.Put)
+            if err != nil {
+                log.Errorf("HbasePutBolt,Execute,Put,index:%d,err:%s", t.Index, err.Error())
+            } else if !succ {
+                log.Errorf("HbasePutBolt,Execute,Put,index:%d,fail", t.Index)
+            } else {
+                return
+            }
 		}
 
-		time.Sleep(time.Second)
+		time.Sleep(time.Second * 7)
+		t.hc, err = hbase.NewClient(t.zkHosts, "/hbase")
+		if err != nil {
+            log.Errorf("hbase.NewClient,err:%s", err.Error())
+        }
 	}
 }
