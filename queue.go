@@ -20,6 +20,7 @@ package gostream
 
 import (
     "sync"
+    "log"
 )
 
 // Queue represents a single instance of the queue data structure.
@@ -38,10 +39,21 @@ type Queue struct {
 }
 
 //size must be power of 2
-func NewQueue(maxsize int, wait bool) *Queue {
+func NewQueue(size int, wait bool) *Queue {
     t := &Queue{}
     t.wait = wait
+
+    maxsize := 1
+    for {
+        if maxsize < size {
+            maxsize = maxsize << 1
+        }else {
+            break
+        }
+    }
+
     t.buf = make([]interface{}, maxsize)
+    log.Printf("size:%d,maxsize:%d\n", size, maxsize)
     return t
 }
 
