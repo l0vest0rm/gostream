@@ -133,13 +133,15 @@ func (t *DoubleQueue) Append(elem interface{})  {
             wq.tail = (wq.tail + 1) & (len(wq.buf) - 1)
             wq.count++
 
+            if wq.count == 1 {
+                if t.notEmpty != nil {
+                    //fmt.Println("notEmpty.Signal()")
+                    t.notEmpty.Signal()
+                }
+            }
+
             t.wlock.Unlock()
             return
-        }
-
-        if t.notEmpty != nil {
-            //fmt.Println("notEmpty.Signal()")
-            t.notEmpty.Signal()
         }
 
         //fmt.Println("notFull.Wait()")
