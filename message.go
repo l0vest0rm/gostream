@@ -17,9 +17,9 @@ func convertKey(key interface{}) uint64 {
 		return murmur3.Sum64(key.([]byte))
 	case uint64:
 		return key.(uint64)
-	case int64:
-		return uint64(key.(int64))
+    case int64:
+        return uint64(key.(int64))
 	default:
-		return 0
+		panic("wrong key type")
 	}
 }

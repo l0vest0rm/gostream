@@ -13,6 +13,7 @@ type WordMsg struct {
 type MySpout struct {
 	*gostream.BaseSpout
 	stop chan bool
+	sum  uint64
 }
 
 func (t *WordMsg) GetHashKey() interface{} {
@@ -57,6 +58,7 @@ func (t *MySpout) Open(index int, context gostream.TopologyContext, collector go
 
 func (t *MySpout) Close() {
 	close(t.stop)
+	log.Printf("MySpout,index:%d,sum:%d\n", t.Index, t.sum)
 }
 
 func (t *MySpout) Execute(message interface{}) {
@@ -64,4 +66,5 @@ func (t *MySpout) Execute(message interface{}) {
 	msg := &WordMsg{Key: word}
 	t.Collector.Emit(msg)
 	//log.Printf("emit word:%s\n", word)
+	t.sum += 1
 }
