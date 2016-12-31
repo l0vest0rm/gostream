@@ -45,23 +45,22 @@ func (t *BaseBolt) Execute(message Message) {
 
 func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, taskid int) {
 	defer wg.Done()
-
 	log.Printf("goBolt,%s,%d start\n", id, taskid)
 	cc := t.commons[id]
 	ibolt := t.bolts[id].ibolt.NewInstance()
 	ibolt.Prepare(taskid, cc, cc)
 
+    var message interface{}
+
 loop:
 	for {
-		select {
-		case message, more := <-cc.tasks[taskid].messages:
-			if more {
-				ibolt.Execute(message)
-			} else {
-				//no more message
-				break loop
-			}
-		}
+		message = cc.tasks[taskid].queue.Get()
+        if message == nil {
+            //no more message
+            break loop
+        }
+
+        ibolt.Execute(message.(Message))
 	}
 
 	ibolt.Cleanup()

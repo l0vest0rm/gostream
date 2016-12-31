@@ -29,7 +29,7 @@ type TaskInfo struct {
 	componentId  string
 	taskid       int //componentId + taskid 唯一
 	dependentCnt int //依赖messages的上游发送者的数目
-	messages     chan Message
+	queue *Queue
 }
 
 type StreamInfo struct {
@@ -67,53 +67,53 @@ func (t *ComponentCommon) GetThisComponentId() string {
 }
 
 func (t *ComponentCommon) Emit(message Message) {
-	var channel chan Message
+	var queue *Queue
 	//todo此处可并发
 	for _, streamInfo := range t.streams {
 		l := len(streamInfo.tasks)
 		if l > 1 {
 			switch streamInfo.groupingType {
 			case GROUPING_SHUFFLE:
-				channel = streamInfo.tasks[rand.Intn(l)].messages
+				queue = streamInfo.tasks[rand.Intn(l)].queue
 			case GROUPING_KEY:
 				hashid := convertKey(message.GetHashKey())
 				idx := hashid % uint64(l)
-				channel = streamInfo.tasks[idx].messages
+				queue = streamInfo.tasks[idx].queue
 			default:
 				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
 				return
 			}
 		} else {
-			channel = streamInfo.tasks[0].messages
+			queue = streamInfo.tasks[0].queue
 		}
 
-		channel <- message
+		queue.Append(message)
 	}
 }
 
 
 func (t *ComponentCommon) EmitTo(message Message, streamid string) {
-	var channel chan Message
+	var queue *Queue
 
     if streamInfo, ok := t.streams[streamid];ok{
         l := len(streamInfo.tasks)
         if l > 1 {
             switch streamInfo.groupingType {
             case GROUPING_SHUFFLE:
-                channel = streamInfo.tasks[rand.Intn(l)].messages
+				queue = streamInfo.tasks[rand.Intn(l)].queue
             case GROUPING_KEY:
                 hashid := convertKey(message.GetHashKey())
                 idx := hashid % uint64(l)
-                channel = streamInfo.tasks[idx].messages
+				queue = streamInfo.tasks[idx].queue
             default:
                 log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
                 return
             }
         } else {
-            channel = streamInfo.tasks[0].messages
+			queue = streamInfo.tasks[0].queue
         }
 
-        channel <- message
+		queue.Append(message)
     }
 }
 
@@ -124,8 +124,8 @@ func (t *ComponentCommon) closeDownstream() {
 			t.tb.mu.Lock()
 			taskInfo.dependentCnt -= 1
 			if taskInfo.dependentCnt == 0 {
-				log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
-				close(taskInfo.messages)
+				//log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
+				taskInfo.queue.Close()
 			}
 			t.tb.mu.Unlock()
 		}
@@ -204,7 +204,7 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task := &TaskInfo{}
 		task.componentId = id
 		task.taskid = i
-		task.messages = make(chan Message, bufSize) //缓冲设置
+		task.queue = NewQueue(bufSize, true) //缓冲设置
 		cc.tasks = append(cc.tasks, task)
 	}
 
