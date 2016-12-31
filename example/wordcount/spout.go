@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/l0vest0rm/gostream"
+    "time"
 )
 
 type WordMsg struct {
@@ -13,7 +14,8 @@ type WordMsg struct {
 type MySpout struct {
 	*gostream.BaseSpout
 	stop chan bool
-	sum  uint64
+	sum  int64
+    ts int64
 }
 
 func (t *WordMsg) GetHashKey() interface{} {
@@ -53,12 +55,15 @@ func (t *MySpout) NewInstance() gostream.ISpout {
 
 func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector, messages chan<- interface{}) {
 	t.BaseSpout.Open(index, context, collector, messages)
-	go goRandomWords(t.stop, messages)
+    t.ts = time.Now().Unix()
+    go goRandomWords(t.stop, messages)
 }
 
 func (t *MySpout) Close() {
-	close(t.stop)
-	log.Printf("MySpout,index:%d,sum:%d\n", t.Index, t.sum)
+    usedTs := time.Now().Unix() - t.ts
+    close(t.stop)
+
+	log.Printf("MySpout,index:%d,sum:%d,usedTs:%d, %d/s\n", t.Index, t.sum, usedTs, t.sum/usedTs)
 }
 
 func (t *MySpout) Execute(message interface{}) {

@@ -57,6 +57,7 @@ loop:
 		message = cc.tasks[taskid].queue.Get()
         if message == nil {
             //no more message
+            log.Printf("goBolt id:%s,%d receive stop signal", id, taskid)
             break loop
         }
 

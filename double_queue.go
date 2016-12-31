@@ -20,6 +20,7 @@ package gostream
 
 import (
     "sync"
+    //"fmt"
 )
 
 type Queue struct {
@@ -33,8 +34,8 @@ type Queue struct {
 type DoubleQueue struct {
     rlock sync.RWMutex
     wlock sync.RWMutex
-    condEmpty *sync.Cond
-    condFull *sync.Cond
+    notEmpty *sync.Cond
+    notFull *sync.Cond
     closed bool
     rq *Queue
     wq *Queue
@@ -58,23 +59,14 @@ func NewDoubleQueue(size int) *DoubleQueue {
 }
 
 func (t *DoubleQueue) Close()  {
-    for {
-        t.rlock.Lock()
-        if t.rq.count > 0 {
-            //not empty
-            t.rlock.Unlock()
-            continue
-        }
+    t.wlock.Lock()
 
-        t.closed = true
-        if t.condEmpty != nil {
-            t.condEmpty.Broadcast()
-        }
-
-        t.rlock.Unlock()
-        return
+    t.closed = true
+    if t.notEmpty != nil {
+        t.notEmpty.Broadcast()
     }
 
+    t.wlock.Unlock()
 }
 
 func (t *DoubleQueue) Get() interface{} {
@@ -101,8 +93,9 @@ func (t *DoubleQueue) Get() interface{} {
             t.rq = t.wq
             t.wq = rq
 
-            if t.condFull != nil {
-                t.condFull.Signal()
+            if t.notFull != nil {
+                //fmt.Println("notFull.Signal()")
+                t.notFull.Signal()
             }
 
             t.wlock.Unlock()
@@ -110,26 +103,29 @@ func (t *DoubleQueue) Get() interface{} {
             continue
         }
 
-        t.wlock.Unlock()
-
         if t.closed {
+            t.wlock.Unlock()
             t.rlock.Unlock()
             return nil
         }
 
-        if t.condEmpty == nil {
-            t.condEmpty = sync.NewCond(&t.rlock)
+        //fmt.Println("notEmpty.Wait()")
+        if t.notEmpty == nil {
+            t.notEmpty = sync.NewCond(&t.wlock)
         }
 
-        t.condEmpty.Wait()
+        t.notEmpty.Wait()
+        t.wlock.Unlock()
+        //fmt.Println("notEmpty.recover()")
     }
 }
 
 func (t *DoubleQueue) Append(elem interface{})  {
     t.wlock.Lock()
-    wq := t.wq
+    var wq *Queue
 
     for {
+        wq = t.wq
         if wq.count < len(wq.buf) {
             //not full
             wq.buf[wq.tail] = elem
@@ -137,27 +133,22 @@ func (t *DoubleQueue) Append(elem interface{})  {
             wq.tail = (wq.tail + 1) & (len(wq.buf) - 1)
             wq.count++
 
-            if t.condEmpty != nil {
-                t.condEmpty.Signal()
-            }
-
             t.wlock.Unlock()
             return
-        } else {
-            //full
-            t.wlock.Unlock()
-            t.rlock.Lock()
-            t.wlock.Lock()
-            if t.condEmpty != nil {
-                t.condEmpty.Signal()
-            }
-            t.rlock.Unlock()
-
-            if t.condFull == nil {
-                t.condFull = sync.NewCond(&t.wlock)
-            }
-
-            t.condFull.Wait()
         }
+
+        if t.notEmpty != nil {
+            //fmt.Println("notEmpty.Signal()")
+            t.notEmpty.Signal()
+        }
+
+        //fmt.Println("notFull.Wait()")
+        //full
+        if t.notFull == nil {
+            t.notFull = sync.NewCond(&t.wlock)
+        }
+
+        t.notFull.Wait()
+        //fmt.Println("notFull.recover()")
     }
 }
