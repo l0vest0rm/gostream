@@ -29,7 +29,7 @@ type TaskInfo struct {
 	componentId  string
 	taskid       int //componentId + taskid 唯一
 	dependentCnt int //依赖messages的上游发送者的数目
-	queue *Queue
+	queue *DoubleQueue
 }
 
 type StreamInfo struct {
@@ -67,7 +67,7 @@ func (t *ComponentCommon) GetThisComponentId() string {
 }
 
 func (t *ComponentCommon) Emit(message Message) {
-	var queue *Queue
+	var queue *DoubleQueue
 	//todo此处可并发
 	for _, streamInfo := range t.streams {
 		l := len(streamInfo.tasks)
@@ -93,7 +93,7 @@ func (t *ComponentCommon) Emit(message Message) {
 
 
 func (t *ComponentCommon) EmitTo(message Message, streamid string) {
-	var queue *Queue
+	var queue *DoubleQueue
 
     if streamInfo, ok := t.streams[streamid];ok{
         l := len(streamInfo.tasks)
@@ -124,9 +124,9 @@ func (t *ComponentCommon) closeDownstream() {
 			t.tb.mu.Lock()
 			taskInfo.dependentCnt -= 1
 			if taskInfo.dependentCnt == 0 {
-				//log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
 				taskInfo.queue.Close()
-			}
+                log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
+            }
 			t.tb.mu.Unlock()
 		}
 	}
@@ -204,7 +204,7 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task := &TaskInfo{}
 		task.componentId = id
 		task.taskid = i
-		task.queue = NewQueue(bufSize, true) //缓冲设置
+		task.queue = NewDoubleQueue(bufSize) //缓冲设置
 		cc.tasks = append(cc.tasks, task)
 	}
 
