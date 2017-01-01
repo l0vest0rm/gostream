@@ -19,7 +19,6 @@
 package main
 
 import (
-	"log"
 	"math/rand"
 
 	"github.com/l0vest0rm/gostream"
@@ -42,25 +41,6 @@ func (t *WordMsg) GetMsgType() int {
 	return 0
 }
 
-func goRandomWords(stop chan bool, messages chan<- interface{}) {
-	var word string
-	for {
-		select {
-		case <-stop:
-			log.Println("goRandomWords receive stop signal")
-			return
-		default:
-			id := rand.Int() % 2
-			if id == 0 {
-				word = STREAMID1
-			} else {
-				word = STREAMID2
-			}
-			messages <- word
-		}
-	}
-}
-
 func NewSpout() gostream.ISpout {
 	t := &MySpout{}
 	t.BaseSpout = gostream.NewBaseSpout()
@@ -75,17 +55,23 @@ func (t *MySpout) NewInstance() gostream.ISpout {
 	return t1
 }
 
-func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector, messages chan<- interface{}) {
-	t.BaseSpout.Open(index, context, collector, messages)
-	go goRandomWords(t.stop, messages)
+func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
+	t.BaseSpout.Open(index, context, collector)
 }
 
 func (t *MySpout) Close() {
 	close(t.stop)
 }
 
-func (t *MySpout) Execute(message interface{}) {
-	word := message.(string)
+func (t *MySpout) NextTuple() {
+	var word string
+	id := rand.Int() % 2
+	if id == 0 {
+		word = STREAMID1
+	} else {
+		word = STREAMID2
+	}
+
 	msg := &WordMsg{Key: word}
 	t.Collector.EmitTo(msg, word)
 	//log.Printf("emit word:%s\n", word)

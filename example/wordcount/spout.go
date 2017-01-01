@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/l0vest0rm/gostream"
+    "time"
 )
 
 type WordMsg struct {
@@ -12,8 +13,8 @@ type WordMsg struct {
 
 type MySpout struct {
 	*gostream.BaseSpout
-	stop chan bool
-	sum  uint64
+	sum  int64
+    ts int64
 }
 
 func (t *WordMsg) GetHashKey() interface{} {
@@ -46,23 +47,23 @@ func NewSpout() gostream.ISpout {
 func (t *MySpout) NewInstance() gostream.ISpout {
 	t1 := &MySpout{}
 	t1.BaseSpout = t.BaseSpout.Copy()
-	t1.stop = make(chan bool)
 
 	return t1
 }
 
-func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector, messages chan<- interface{}) {
-	t.BaseSpout.Open(index, context, collector, messages)
-	go goRandomWords(t.stop, messages)
+func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
+	t.BaseSpout.Open(index, context, collector)
+    t.ts = time.Now().Unix()
 }
 
 func (t *MySpout) Close() {
-	close(t.stop)
-	log.Printf("MySpout,index:%d,sum:%d\n", t.Index, t.sum)
+    usedTs := time.Now().Unix() - t.ts
+
+	log.Printf("MySpout,index:%d,sum:%d,usedTs:%d, %d/s\n", t.Index, t.sum, usedTs, t.sum/usedTs)
 }
 
-func (t *MySpout) Execute(message interface{}) {
-	word := message.(string)
+func (t *MySpout) NextTuple() {
+	word := string(Krand(1, KC_RAND_KIND_LOWER))
 	msg := &WordMsg{Key: word}
 	t.Collector.Emit(msg)
 	//log.Printf("emit word:%s\n", word)
