@@ -25,25 +25,23 @@ import (
 )
 
 // RwQueue represents a single instance of the queue data structure.
-type LockFreeQueue struct {
-    // The padding members 1 to 6 below are here to ensure each item is on a separate cache line.
+type LockFreeQueue2 struct {
+    // The padding members 1 to 5 below are here to ensure each item is on a separate cache line.
     // This prevents false sharing and hence improves performance.
     padding1 [8]uint64
-    lastCommittedIndex uint64
+    readIndex uint64
     padding2 [8]uint64
-    nextFreeIndex uint64
+    writeIndex uint64
     padding3 [8]uint64
-    readerIndex uint64
-    padding4 [8]uint64
     indexMask uint64
-    padding5 [8]uint64
+    padding4 [8]uint64
     buf []interface{}
-    padding6 [8]uint64
+    padding5 [8]uint64
     closed bool
 }
 
 //size must be power of 2
-func NewLockFreeQueue(size int) *LockFreeQueue {
+func NewLockFreeQueue2(size int) *LockFreeQueue2 {
     qsize := 1
     for {
         if qsize < size {
@@ -53,20 +51,21 @@ func NewLockFreeQueue(size int) *LockFreeQueue {
         }
     }
 
-    t := &LockFreeQueue{lastCommittedIndex : 0, nextFreeIndex : 1, readerIndex : 1, indexMask: uint64(qsize-1), buf : make([]interface{}, qsize)}
+    t := &LockFreeQueue2{readIndex : 1, writeIndex : 1, indexMask: uint64(qsize-1), buf : make([]interface{}, qsize)}
 
     return t
 }
 
-func (t *LockFreeQueue) Close()  {
+func (t *LockFreeQueue2) Close()  {
     t.closed = true
 }
 
-func (t *LockFreeQueue) Get() interface{} {
-    var myIndex = atomic.AddUint64(&t.readerIndex, 1) - 1
+func (t *LockFreeQueue2) Get() interface{} {
+    var myIndex = atomic.AddUint64(&t.readIndex, 1) - 1
 
     //If reader has out-run writer, wait for a value to be committed
-    for myIndex > t.lastCommittedIndex {
+    for myIndex > (t.writeIndex - 1) {
+        //dead loop
         if t.closed {
             return nil
         }
@@ -76,18 +75,13 @@ func (t *LockFreeQueue) Get() interface{} {
     return t.buf[myIndex & t.indexMask]
 }
 
-func (t *LockFreeQueue) Append(elem interface{})  {
-    var myIndex = atomic.AddUint64(&t.nextFreeIndex, 1) - 1
+func (t *LockFreeQueue2) Append(elem interface{})  {
+    var myIndex = atomic.AddUint64(&t.writeIndex, 1) - 1
     //Wait for reader to catch up, so we don't clobber a slot which it is (or will be) reading
-    for myIndex > (t.readerIndex + t.indexMask - 1) {
+    for myIndex > (t.readIndex + t.indexMask) {
         //dead loop
-        //runtime.Gosched()
+        runtime.Gosched()
     }
     //Write the item into it's slot
     t.buf[myIndex & t.indexMask] = elem
-    //Increment the lastCommittedIndex so the item is available for reading
-    for !atomic.CompareAndSwapUint64(&t.lastCommittedIndex, myIndex - 1, myIndex) {
-        //dead loop
-        //runtime.Gosched()
-    }
 }
