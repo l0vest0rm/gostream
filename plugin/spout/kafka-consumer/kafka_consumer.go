@@ -35,12 +35,22 @@ type KafkaSpout struct {
 	Messages <-chan *sarama.ConsumerMessage
 }
 
-func NewKafkaSpout(kafkaCfg *KafkaCfg) *KafkaSpout {
+func NewKafkaSpout(kafkaCfg *KafkaCfg) gostream.ISpout {
 	t := &KafkaSpout{}
 	t.BaseSpout = gostream.NewBaseSpout()
 	t.kafkaCfg = kafkaCfg
 	return t
 }
+
+func (t *KafkaSpout) NewInstance() gostream.ISpout {
+    log.Debug("KafkaSpout NewInstance")
+    t1 := &KafkaSpout{}
+    t1.BaseSpout = t.BaseSpout.Copy()
+    t1.kafkaCfg = t.kafkaCfg
+
+    return t1
+}
+
 
 func (t *KafkaSpout) Copy() *KafkaSpout {
 	log.Debug("KafkaSpout Copy")
