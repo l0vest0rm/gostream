@@ -89,6 +89,8 @@ func (t *DoubleQueue) Get() interface{} {
 
         //swith queue
         t.wlock.Lock()
+
+        queue_switch:
         if t.wq.count > 0 {
             t.rq = t.wq
             t.wq = rq
@@ -115,7 +117,7 @@ func (t *DoubleQueue) Get() interface{} {
         }
 
         t.notEmpty.Wait()
-        t.wlock.Unlock()
+        goto queue_switch
         //fmt.Println("notEmpty.recover()")
     }
 }
