@@ -29,7 +29,7 @@ type TaskInfo struct {
 	componentId  string
 	taskid       int //componentId + taskid 唯一
 	dependentCnt int //依赖messages的上游发送者的数目
-	queue *DoubleQueue
+	queue *RwQueue
 }
 
 type StreamInfo struct {
@@ -67,7 +67,7 @@ func (t *ComponentCommon) GetThisComponentId() string {
 }
 
 func (t *ComponentCommon) Emit(message Message) {
-	var queue *DoubleQueue
+	var queue *RwQueue
 	//todo此处可并发
 	for _, streamInfo := range t.streams {
 		l := len(streamInfo.tasks)
@@ -93,7 +93,7 @@ func (t *ComponentCommon) Emit(message Message) {
 
 
 func (t *ComponentCommon) EmitTo(message Message, streamid string) {
-	var queue *DoubleQueue
+	var queue *RwQueue
 
     if streamInfo, ok := t.streams[streamid];ok{
         l := len(streamInfo.tasks)
