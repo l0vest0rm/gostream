@@ -32,8 +32,8 @@ type Queue struct {
 
 // DoubleQueue represents a single instance of the queue data structure.
 type RwQueue struct {
-    rlock sync.RWMutex
-    wlock sync.RWMutex
+    rlock sync.Mutex
+    wlock sync.Mutex
     notEmpty *sync.Cond
     notFull *sync.Cond
     closed bool
@@ -135,15 +135,13 @@ func (t *RwQueue) Append(elem interface{})  {
             wq.tail = (wq.tail + 1) & (len(wq.buf) - 1)
             wq.count++
 
-            if wq.count == 1 {
-                if t.notEmpty != nil {
-                    //fmt.Println("notEmpty.Signal()")
-                    t.notEmpty.Signal()
-                }
-            }
-
             t.wlock.Unlock()
             return
+        }
+
+        if t.notEmpty != nil {
+            //fmt.Println("notEmpty.Signal()")
+            t.notEmpty.Signal()
         }
 
         //fmt.Println("notFull.Wait()")
