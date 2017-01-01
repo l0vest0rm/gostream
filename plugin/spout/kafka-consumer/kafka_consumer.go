@@ -22,6 +22,7 @@ type KafkaSpout struct {
 	kafkaCfg *KafkaCfg
 	cg       *consumergroup.ConsumerGroup
 	offsets  map[string]map[int32]int64
+	Messages <-chan *sarama.ConsumerMessage
 }
 
 func NewKafkaSpout(kafkaCfg *KafkaCfg) *KafkaSpout {
@@ -40,9 +41,9 @@ func (t *KafkaSpout) Copy() *KafkaSpout {
 	return t1
 }
 
-func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector, messages chan<- interface{}) {
+func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
 	log.Debugf("KafkaSpout Open,%d", index)
-	t.BaseSpout.Open(index, context, collector, messages)
+	t.BaseSpout.Open(index, context, collector)
 	t.offsets = make(map[string]map[int32]int64)
 
 	var err error
@@ -61,13 +62,7 @@ func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector
 		return
 	}
 
-	go func() {
-		var message *sarama.ConsumerMessage
-		for {
-			message = <-t.cg.Messages()
-			messages <- message
-		}
-	}()
+	t.Messages = t.cg.Messages()
 
 	return
 }
@@ -78,7 +73,13 @@ func (t *KafkaSpout) Close() {
 	t.BaseSpout.Close()
 }
 
-func (t *KafkaSpout) Execute(message interface{}) {
+func (t *KafkaSpout) NextTuple() {
+    message := <- t.Messages
+    if !t.Excpected(message) {
+        return
+    }
+
+    t.Collector.Emit(message)
 }
 
 //extra api
