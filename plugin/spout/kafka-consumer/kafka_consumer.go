@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+type KafkaConsumerMessage sarama.ConsumerMessage
+
+func (t *KafkaConsumerMessage) GetHashKey() interface{} {
+    return uint64(t.Partition)
+}
+
+func (t *KafkaConsumerMessage) GetMsgType() int {
+    return 0
+}
+
 type KafkaCfg struct {
 	ZkHosts           []string
 	Chroot            string
@@ -79,7 +89,8 @@ func (t *KafkaSpout) NextTuple() {
         return
     }
 
-    t.Collector.Emit(message)
+    t.Collector.Emit((*KafkaConsumerMessage)(message))
+    t.cg.CommitUpto(message)
 }
 
 //extra api
@@ -98,6 +109,6 @@ func (t *KafkaSpout) Excpected(msg *sarama.ConsumerMessage) bool {
 	return true
 }
 
-func (t *KafkaSpout) CommitUpto(msg *sarama.ConsumerMessage) {
-	t.cg.CommitUpto(msg)
+func (t *KafkaSpout) CommitUpto(message *sarama.ConsumerMessage) {
+	t.cg.CommitUpto(message)
 }
