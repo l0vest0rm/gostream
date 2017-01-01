@@ -42,7 +42,7 @@ type RwQueue struct {
 }
 
 //size must be power of 2
-func NewDoubleQueue(size int) *RwQueue {
+func NewRwQueue(size int) *RwQueue {
     maxsize := 1
     for {
         if maxsize < size {
