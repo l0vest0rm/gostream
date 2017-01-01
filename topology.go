@@ -17,7 +17,6 @@ const (
 type Spout struct {
 	cc      *ComponentCommon
 	ispout  ISpout
-	bufSize int
 }
 
 type Bolt struct {
@@ -29,7 +28,7 @@ type TaskInfo struct {
 	componentId  string
 	taskid       int //componentId + taskid 唯一
 	dependentCnt int //依赖messages的上游发送者的数目
-	queue *DoubleQueue
+	queue *RwQueue
 }
 
 type StreamInfo struct {
@@ -67,7 +66,7 @@ func (t *ComponentCommon) GetThisComponentId() string {
 }
 
 func (t *ComponentCommon) Emit(message Message) {
-	var queue *DoubleQueue
+	var queue *RwQueue
 	//todo此处可并发
 	for _, streamInfo := range t.streams {
 		l := len(streamInfo.tasks)
@@ -93,7 +92,7 @@ func (t *ComponentCommon) Emit(message Message) {
 
 
 func (t *ComponentCommon) EmitTo(message Message, streamid string) {
-	var queue *DoubleQueue
+	var queue *RwQueue
 
     if streamInfo, ok := t.streams[streamid];ok{
         l := len(streamInfo.tasks)
@@ -165,7 +164,7 @@ func NewTopologyBuilder() *TopologyBuilder {
 	return tb
 }
 
-func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int, bufSize int) *Spout {
+func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int) *Spout {
 	if _, ok := t.commons[id]; ok {
 		panic("SetSpout,id exist")
 	}
@@ -183,7 +182,6 @@ func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int, bu
 
 	spout := &Spout{}
 	spout.cc = cc
-	spout.bufSize = bufSize
 	spout.ispout = ispout
 	t.spouts[id] = spout
 
@@ -204,7 +202,7 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task := &TaskInfo{}
 		task.componentId = id
 		task.taskid = i
-		task.queue = NewDoubleQueue(bufSize) //缓冲设置
+		task.queue = NewRwQueue(bufSize) //缓冲设置
 		cc.tasks = append(cc.tasks, task)
 	}
 

@@ -29,7 +29,7 @@ const (
 
 func main() {
     builder := gostream.NewTopologyBuilder()
-    builder.SetSpout("randomWords", NewSpout(), 4, 100)
+    builder.SetSpout("randomWords", NewSpout(), 4)
     bolt := builder.SetBolt("wordcount1", NewBolt(), 4, 100)
     bolt.KeyGrouping("randomWords", STREAMID1)
     bolt2 := builder.SetBolt("wordcount2", NewBolt(), 4, 100)

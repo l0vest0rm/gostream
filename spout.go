@@ -3,14 +3,13 @@ package gostream
 import (
 	"log"
 	"sync"
-	"time"
 )
 
 type ISpout interface {
 	NewInstance() ISpout
-	Open(taskid int, context TopologyContext, collector IOutputCollector, messages chan<- interface{})
+	Open(taskid int, context TopologyContext, collector IOutputCollector)
 	Close()
-	Execute(message interface{})
+	NextTuple()
 }
 
 type BaseSpout struct {
@@ -30,7 +29,7 @@ func (t *BaseSpout) Copy() *BaseSpout {
 	return t1
 }
 
-func (t *BaseSpout) Open(index int, context TopologyContext, collector IOutputCollector, messages chan<- interface{}) {
+func (t *BaseSpout) Open(index int, context TopologyContext, collector IOutputCollector) {
 	log.Printf("BaseSpout Open,%d", index)
 	t.Index = index
 	t.Context = context
@@ -48,8 +47,7 @@ func (t *TopologyBuilder) goSpout(wg *sync.WaitGroup, stop chan bool, id string,
 	cc := t.commons[id]
 	ispout := t.spouts[id].ispout.NewInstance()
 
-	messages := make(chan interface{}, t.spouts[id].bufSize)
-	ispout.Open(taskid, cc, cc, messages)
+	ispout.Open(taskid, cc, cc)
 
 loop:
 	for {
@@ -57,10 +55,8 @@ loop:
 		case <-stop:
 			log.Printf("goSpout id:%s,%d receive stop signal", id, taskid)
 			break loop
-		case message := <-messages:
-			ispout.Execute(message)
 		default:
-			time.Sleep(1e9)
+			ispout.NextTuple()
 		}
 	}
 

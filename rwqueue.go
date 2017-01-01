@@ -31,9 +31,9 @@ type Queue struct {
 }
 
 // DoubleQueue represents a single instance of the queue data structure.
-type DoubleQueue struct {
-    rlock sync.RWMutex
-    wlock sync.RWMutex
+type RwQueue struct {
+    rlock sync.Mutex
+    wlock sync.Mutex
     notEmpty *sync.Cond
     notFull *sync.Cond
     closed bool
@@ -42,7 +42,7 @@ type DoubleQueue struct {
 }
 
 //size must be power of 2
-func NewDoubleQueue(size int) *DoubleQueue {
+func NewRwQueue(size int) *RwQueue {
     maxsize := 1
     for {
         if maxsize < size {
@@ -52,13 +52,13 @@ func NewDoubleQueue(size int) *DoubleQueue {
         }
     }
 
-    t := &DoubleQueue{rq : &Queue{buf : make([]interface{}, maxsize)},
+    t := &RwQueue{rq : &Queue{buf : make([]interface{}, maxsize)},
         wq : &Queue{buf : make([]interface{}, maxsize)}}
 
     return t
 }
 
-func (t *DoubleQueue) Close()  {
+func (t *RwQueue) Close()  {
     t.wlock.Lock()
 
     t.closed = true
@@ -69,7 +69,7 @@ func (t *DoubleQueue) Close()  {
     t.wlock.Unlock()
 }
 
-func (t *DoubleQueue) Get() interface{} {
+func (t *RwQueue) Get() interface{} {
     var elem interface{}
     t.rlock.Lock()
 
@@ -122,7 +122,7 @@ func (t *DoubleQueue) Get() interface{} {
     }
 }
 
-func (t *DoubleQueue) Append(elem interface{})  {
+func (t *RwQueue) Append(elem interface{})  {
     t.wlock.Lock()
     var wq *Queue
 
@@ -135,15 +135,13 @@ func (t *DoubleQueue) Append(elem interface{})  {
             wq.tail = (wq.tail + 1) & (len(wq.buf) - 1)
             wq.count++
 
-            if wq.count == 1 {
-                if t.notEmpty != nil {
-                    //fmt.Println("notEmpty.Signal()")
-                    t.notEmpty.Signal()
-                }
-            }
-
             t.wlock.Unlock()
             return
+        }
+
+        if t.notEmpty != nil {
+            //fmt.Println("notEmpty.Signal()")
+            t.notEmpty.Signal()
         }
 
         //fmt.Println("notFull.Wait()")

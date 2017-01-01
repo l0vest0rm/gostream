@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+type KafkaConsumerMessage sarama.ConsumerMessage
+
+func (t *KafkaConsumerMessage) GetHashKey() interface{} {
+    return uint64(t.Partition)
+}
+
+func (t *KafkaConsumerMessage) GetMsgType() int {
+    return 0
+}
+
 type KafkaCfg struct {
 	ZkHosts           []string
 	Chroot            string
@@ -22,14 +32,25 @@ type KafkaSpout struct {
 	kafkaCfg *KafkaCfg
 	cg       *consumergroup.ConsumerGroup
 	offsets  map[string]map[int32]int64
+	Messages <-chan *sarama.ConsumerMessage
 }
 
-func NewKafkaSpout(kafkaCfg *KafkaCfg) *KafkaSpout {
+func NewKafkaSpout(kafkaCfg *KafkaCfg) gostream.ISpout {
 	t := &KafkaSpout{}
 	t.BaseSpout = gostream.NewBaseSpout()
 	t.kafkaCfg = kafkaCfg
 	return t
 }
+
+func (t *KafkaSpout) NewInstance() gostream.ISpout {
+    log.Debug("KafkaSpout NewInstance")
+    t1 := &KafkaSpout{}
+    t1.BaseSpout = t.BaseSpout.Copy()
+    t1.kafkaCfg = t.kafkaCfg
+
+    return t1
+}
+
 
 func (t *KafkaSpout) Copy() *KafkaSpout {
 	log.Debug("KafkaSpout Copy")
@@ -40,9 +61,9 @@ func (t *KafkaSpout) Copy() *KafkaSpout {
 	return t1
 }
 
-func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector, messages chan<- interface{}) {
+func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
 	log.Debugf("KafkaSpout Open,%d", index)
-	t.BaseSpout.Open(index, context, collector, messages)
+	t.BaseSpout.Open(index, context, collector)
 	t.offsets = make(map[string]map[int32]int64)
 
 	var err error
@@ -61,13 +82,7 @@ func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector
 		return
 	}
 
-	go func() {
-		var message *sarama.ConsumerMessage
-		for {
-			message = <-t.cg.Messages()
-			messages <- message
-		}
-	}()
+	t.Messages = t.cg.Messages()
 
 	return
 }
@@ -78,7 +93,14 @@ func (t *KafkaSpout) Close() {
 	t.BaseSpout.Close()
 }
 
-func (t *KafkaSpout) Execute(message interface{}) {
+func (t *KafkaSpout) NextTuple() {
+    message := <- t.Messages
+    if !t.Excpected(message) {
+        return
+    }
+
+    t.Collector.Emit((*KafkaConsumerMessage)(message))
+    t.cg.CommitUpto(message)
 }
 
 //extra api
@@ -97,6 +119,6 @@ func (t *KafkaSpout) Excpected(msg *sarama.ConsumerMessage) bool {
 	return true
 }
 
-func (t *KafkaSpout) CommitUpto(msg *sarama.ConsumerMessage) {
-	t.cg.CommitUpto(msg)
+func (t *KafkaSpout) CommitUpto(message *sarama.ConsumerMessage) {
+	t.cg.CommitUpto(message)
 }
