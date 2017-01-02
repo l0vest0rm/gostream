@@ -20,18 +20,18 @@ package gostream
 
 import (
     "sync"
-    //"fmt"
 )
 
 type Queue struct {
-    head int
-    tail int
+    head uint64
+    tail uint64
     count int //actual used num
     buf []interface{}
 }
 
 // DoubleQueue represents a single instance of the queue data structure.
 type RwQueue struct {
+    mask uint64
     rlock sync.Mutex
     wlock sync.Mutex
     notEmpty *sync.Cond
@@ -52,7 +52,7 @@ func NewRwQueue(size int) *RwQueue {
         }
     }
 
-    t := &RwQueue{rq : &Queue{buf : make([]interface{}, maxsize)},
+    t := &RwQueue{mask : uint64(maxsize - 1), rq : &Queue{buf : make([]interface{}, maxsize)},
         wq : &Queue{buf : make([]interface{}, maxsize)}}
 
     return t
@@ -79,8 +79,8 @@ func (t *RwQueue) Get() interface{} {
         rq = t.rq
         if rq.count > 0 {
             // bitwise modulus
-            elem = rq.buf[rq.head & (len(rq.buf)-1)]
-            rq.head = (rq.head + 1) & (len(rq.buf)-1)
+            elem = rq.buf[rq.head & t.mask]
+            rq.head += 1
             rq.count--
 
             t.rlock.Unlock()
@@ -130,9 +130,9 @@ func (t *RwQueue) Append(elem interface{})  {
         wq = t.wq
         if wq.count < len(wq.buf) {
             //not full
-            wq.buf[wq.tail] = elem
+            wq.buf[wq.tail & t.mask] = elem
             // bitwise modulus
-            wq.tail = (wq.tail + 1) & (len(wq.buf) - 1)
+            wq.tail += 1
             wq.count++
 
             t.wlock.Unlock()
