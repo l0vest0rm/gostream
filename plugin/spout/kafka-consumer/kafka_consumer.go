@@ -36,10 +36,14 @@ type KafkaSpout struct {
 }
 
 func NewKafkaSpout(kafkaCfg *KafkaCfg) gostream.ISpout {
-	t := &KafkaSpout{}
-	t.BaseSpout = gostream.NewBaseSpout()
-	t.kafkaCfg = kafkaCfg
-	return t
+	return NewKafkaSpout2(kafkaCfg)
+}
+
+func NewKafkaSpout2(kafkaCfg *KafkaCfg) *KafkaSpout {
+    t := &KafkaSpout{}
+    t.BaseSpout = gostream.NewBaseSpout()
+    t.kafkaCfg = kafkaCfg
+    return t
 }
 
 func (t *KafkaSpout) NewInstance() gostream.ISpout {
@@ -50,7 +54,6 @@ func (t *KafkaSpout) NewInstance() gostream.ISpout {
 
     return t1
 }
-
 
 func (t *KafkaSpout) Copy() *KafkaSpout {
 	log.Debug("KafkaSpout Copy")
