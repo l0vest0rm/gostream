@@ -7,7 +7,7 @@ import (
 
 type IBolt interface {
 	NewInstance() IBolt
-	Prepare(taskid int, context TopologyContext, collector IOutputCollector)
+	Prepare(index int, context TopologyContext, collector IOutputCollector)
 	Execute(message Message)
 	Cleanup()
 }
@@ -43,28 +43,31 @@ func (t *BaseBolt) Cleanup() {
 func (t *BaseBolt) Execute(message Message) {
 }
 
-func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, taskid int) {
+func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, index int) {
 	defer wg.Done()
-	log.Printf("goBolt,%s,%d start\n", id, taskid)
+	log.Printf("goBolt,%s,%d start\n", id, index)
 	cc := t.commons[id]
 	ibolt := t.bolts[id].ibolt.NewInstance()
-	ibolt.Prepare(taskid, cc, cc)
 
-    var message interface{}
+    task := cc.tasks[index]
+	ibolt.Prepare(index, task, task)
+
+    var message Message
+    var more bool
 
 loop:
 	for {
-		message = cc.tasks[taskid].queue.Get()
-        if message == nil {
+        message, more = <- cc.tasks[index].messages
+		if !more {
             //no more message
-            log.Printf("goBolt id:%s,%d receive stop signal", id, taskid)
+            log.Printf("goBolt id:%s,%d receive stop signal", id, index)
             break loop
         }
 
-        ibolt.Execute(message.(Message))
+        ibolt.Execute(message)
 	}
 
 	ibolt.Cleanup()
 	cc.closeDownstream()
-	log.Printf("goBolt,%s,%d stopped", id, taskid)
+	log.Printf("goBolt,%s,%d stopped", id, index)
 }
