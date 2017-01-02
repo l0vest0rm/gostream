@@ -19,174 +19,169 @@
 package gostream
 
 import (
-    "sync"
+	//"fmt"
+	"sync"
 )
 
-
 type Queue2 struct {
-    index uint64
-    count int //actual used num
-    buf []interface{}
+	index uint64
+	count int //actual used num
+	buf   []interface{}
 }
 
 // Mqueue represents a single reader and multi writer queue data structure.
 type Mqueue struct {
-    mu sync.Mutex
-    rw sync.RWMutex
-    rqMask uint64
-    wqMask uint64
-    notEmpty *sync.Cond
-    notFull *sync.Cond
-    closed bool
-    rq *Queue2 //read queue
-    eq *Queue2 //exchange queue
-    wq map[int]*Queue2 //write queue, map[writerId]
+	mu       sync.Mutex
+	rw       sync.RWMutex
+	rqsize   int
+	wqsize   int
+	notEmpty *sync.Cond
+	notFull  *sync.Cond
+	closed   bool
+	rq       *Queue2         //read queue
+	eq       *Queue2         //exchange queue
+	wq       map[int]*Queue2 //write queue, map[writerId]
 }
 
-func alignPower2(size int) uint64 {
-    maxsize := 1
-    for {
-        if maxsize < size {
-            maxsize = maxsize << 1
-        }else {
-            break
-        }
-    }
-    return uint64(maxsize)
+func alignPower2(size int) int {
+	maxsize := 1
+	for {
+		if maxsize < size {
+			maxsize = maxsize << 1
+		} else {
+			break
+		}
+	}
+	return maxsize
 }
 
 //size must be power of 2
-func NewMqueue(qsize int) *Mqueue {
-    rqMask := alignPower2(qsize) -1
-    wqMask := alignPower2(int(rqMask+1)/4) -1
+func NewMqueue(rqsize int, wqsize int) *Mqueue {
+	t := &Mqueue{}
+	t.rqsize = alignPower2(rqsize)
+	t.wqsize = alignPower2(wqsize)
+	t.rq = &Queue2{buf: make([]interface{}, t.rqsize)}
+	t.eq = &Queue2{buf: make([]interface{}, t.rqsize)}
+	t.wq = make(map[int]*Queue2)
 
-    t := &Mqueue{rqMask: rqMask, wqMask: wqMask, rq : &Queue2{buf : make([]interface{}, rqMask + 1)},
-        eq : &Queue2{buf : make([]interface{}, rqMask + 1)},
-        wq : make(map[int]*Queue2)}
-
-    return t
+	return t
 }
 
-func (t *Mqueue) Close()  {
-    t.mu.Lock()
+func (t *Mqueue) Close() {
+	t.mu.Lock()
 
-    t.closed = true
-    if t.notEmpty != nil {
-        t.notEmpty.Broadcast()
-    }
+	t.closed = true
+	if t.notEmpty != nil {
+		t.notEmpty.Broadcast()
+	}
 
-    t.mu.Unlock()
+	t.mu.Unlock()
 }
 
-func (t *Mqueue) RegisterWriter(writerId int)  {
-    t.rw.Lock()
-    t.wq[writerId] = &Queue2{buf : make([]interface{}, t.wqMask + 1)}
-    t.rw.Unlock()
+func (t *Mqueue) RegisterWriter(writerId int) {
+	t.rw.Lock()
+	t.wq[writerId] = &Queue2{buf: make([]interface{}, t.wqsize)}
+	t.rw.Unlock()
 }
 
 func (t *Mqueue) Get() interface{} {
-    var elem interface{}
+	var elem interface{}
 
-    var rq *Queue2
+	var rq *Queue2
 
-    for {
-        rq = t.rq
-        if rq.count > 0 {
-            // bitwise modulus
-            elem = rq.buf[rq.index & t.rqMask]
-            rq.index += 1
-            rq.count--
+	for {
+		rq = t.rq
+		if rq.count > 0 {
+			// bitwise modulus
+			elem = rq.buf[rq.index]
+			rq.index += 1
+			rq.count--
+			//fmt.Printf("(t *Mqueue) Get(),count:%d\n", rq.count)
+			return elem
+		}
 
-            return elem
-        }
+		//swith queue
+		t.mu.Lock()
 
-        //swith queue
-        t.mu.Lock()
+	queue_switch:
+		if t.eq.count > 0 {
+			rq.index = 0
+			t.rq = t.eq
+			t.eq = rq
+			//fmt.Printf("queue_switch,count:%d\n", t.eq.count)
+			if t.notFull != nil {
+				//fmt.Println("notFull.Signal()")
+				t.notFull.Signal()
+			}
 
-        queue_switch:
-        if t.eq.count > 0 {
-            rq.index = 0
-            t.rq = t.eq
-            t.eq = rq
+			t.mu.Unlock()
 
-            if t.notFull != nil {
-                //fmt.Println("notFull.Signal()")
-                t.notFull.Signal()
-            }
+			continue
+		}
 
-            t.mu.Unlock()
+		if t.closed {
+			t.mu.Unlock()
+			return nil
+		}
 
-            continue
-        }
+		if t.notEmpty == nil {
+			t.notEmpty = sync.NewCond(&t.mu)
+		}
 
-        if t.closed {
-            t.mu.Unlock()
-            return nil
-        }
-
-        if t.notEmpty == nil {
-            t.notEmpty = sync.NewCond(&t.mu)
-        }
-
-        //fmt.Println("notEmpty.Wait()")
-        t.notEmpty.Wait()
-        //fmt.Println("notEmpty.recover()")
-        goto queue_switch
-    }
+		//fmt.Println("notEmpty.Wait()")
+		t.notEmpty.Wait()
+		//fmt.Println("notEmpty.recover()")
+		goto queue_switch
+	}
 }
 
-func (t *Mqueue) Append(writerId int, elem interface{})  {
-    t.rw.RLock()
-    wq, ok := t.wq[writerId]
-    t.rw.RUnlock()
-    if !ok {
-        t.RegisterWriter(writerId)
-        wq = t.wq[writerId]
-    }
+func (t *Mqueue) Append(writerId int, elem interface{}) {
+	wq := t.wq[writerId]
 
-    for {
-        if wq.count < len(wq.buf) {
-            //not full
-            wq.buf[wq.index & t.wqMask] = elem
-            // bitwise modulus
-            wq.index += 1
-            wq.count++
+	for {
+		if wq.count < len(wq.buf) {
+			//not full
+			wq.buf[wq.index] = elem
+			// bitwise modulus
+			wq.index += 1
+			wq.count++
 
-            return
-        }
+			return
+		}
 
-        //copyt to exchange queue
-        t.mu.Lock()
+		//write queue full
+		t.mu.Lock()
 
-        copy_to_exchange_queue:
-        if t.eq.count + wq.count <= len(t.eq.buf) {
-            //copy(t.eq.buf[t.eq.count:], wq.buf)
-            for i := 0; i < len(wq.buf);i++ {
-                t.eq.buf[t.eq.count + i] = wq.buf[i]
-            }
+	copy_to_exchange_queue:
+		if t.eq.count+wq.count <= t.rqsize {
+			//copy(t.eq.buf[t.eq.count:], wq.buf)
+			for i := 0; i < t.wqsize; i++ {
+				t.eq.buf[t.eq.count+i] = wq.buf[i]
+			}
 
-            t.eq.count += wq.count
+			t.eq.count += wq.count
 
-            if t.notEmpty != nil {
-                //fmt.Println("notEmpty.Signal()")
-                t.notEmpty.Signal()
-            }
+			if t.notEmpty != nil {
+				//fmt.Println("notEmpty.Signal()")
+				t.notEmpty.Signal()
+			}
 
-            t.mu.Unlock()
+			t.mu.Unlock()
 
-            wq.index = 0
+			wq.index = 0
+			wq.count = 0
 
-            continue
-        }
+			continue
+		}
 
-        //full
-        if t.notFull == nil {
-            t.notFull = sync.NewCond(&t.mu)
-        }
+		//full
+		if t.notFull == nil {
+			t.notFull = sync.NewCond(&t.mu)
+		}
 
-        //fmt.Println("notFull.Wait()")
-        t.notFull.Wait()
-        //fmt.Println("notFull.recover()")
-        goto copy_to_exchange_queue
-    }
+		//fmt.Println("notFull.Wait()")
+		t.notFull.Wait()
+		//fmt.Println("notFull.recover()")
+		goto copy_to_exchange_queue
+	}
 }

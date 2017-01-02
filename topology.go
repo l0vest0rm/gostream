@@ -15,8 +15,8 @@ const (
 )
 
 type Spout struct {
-	cc      *ComponentCommon
-	ispout  ISpout
+	cc     *ComponentCommon
+	ispout ISpout
 }
 
 type Bolt struct {
@@ -25,11 +25,11 @@ type Bolt struct {
 }
 
 type TaskInfo struct {
-    cc *ComponentCommon
+	cc           *ComponentCommon
 	componentId  string
 	taskid       int //taskid 全局唯一
 	dependentCnt int //依赖messages的上游发送者的数目
-	messages chan Message
+	messages     *Mqueue
 }
 
 type StreamInfo struct {
@@ -47,16 +47,16 @@ type ComponentCommon struct {
 }
 
 type TopologyBuilder struct {
-	mu      sync.RWMutex
-    nextTaskid int
-	spouts  map[string]*Spout
-	bolts   map[string]*Bolt
-	commons map[string]*ComponentCommon
+	mu         sync.RWMutex
+	nextTaskid int
+	spouts     map[string]*Spout
+	bolts      map[string]*Bolt
+	commons    map[string]*ComponentCommon
 }
 
 type IOutputCollector interface {
-    Emit(message Message)
-    EmitTo(message Message, streamid string)
+	Emit(message Message)
+	EmitTo(message Message, streamid string)
 }
 
 type TopologyContext interface {
@@ -68,54 +68,53 @@ func (t *TaskInfo) GetThisComponentId() string {
 }
 
 func (t *TaskInfo) Emit(message Message) {
-	var messages chan Message
+	var messages *Mqueue
 	//todo此处可并发
 	for _, streamInfo := range t.cc.streams {
 		l := len(streamInfo.tasks)
 		if l > 1 {
 			switch streamInfo.groupingType {
 			case GROUPING_SHUFFLE:
-                messages = streamInfo.tasks[rand.Intn(l)].messages
+				messages = streamInfo.tasks[rand.Intn(l)].messages
 			case GROUPING_KEY:
 				hashid := convertKey(message.GetHashKey())
 				idx := hashid % uint64(l)
-                messages = streamInfo.tasks[idx].messages
+				messages = streamInfo.tasks[idx].messages
 			default:
 				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
 				return
 			}
 		} else {
-            messages = streamInfo.tasks[0].messages
+			messages = streamInfo.tasks[0].messages
 		}
 
-        messages <- message
+		messages.Append(t.taskid, message)
 	}
 }
 
-
 func (t *TaskInfo) EmitTo(message Message, streamid string) {
-    var messages chan Message
+	var messages *Mqueue
 
-    if streamInfo, ok := t.cc.streams[streamid];ok{
-        l := len(streamInfo.tasks)
-        if l > 1 {
-            switch streamInfo.groupingType {
-            case GROUPING_SHUFFLE:
-                messages = streamInfo.tasks[rand.Intn(l)].messages
-            case GROUPING_KEY:
-                hashid := convertKey(message.GetHashKey())
-                idx := hashid % uint64(l)
-                messages = streamInfo.tasks[idx].messages
-            default:
-                log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
-                return
-            }
-        } else {
-            messages = streamInfo.tasks[0].messages
-        }
+	if streamInfo, ok := t.cc.streams[streamid]; ok {
+		l := len(streamInfo.tasks)
+		if l > 1 {
+			switch streamInfo.groupingType {
+			case GROUPING_SHUFFLE:
+				messages = streamInfo.tasks[rand.Intn(l)].messages
+			case GROUPING_KEY:
+				hashid := convertKey(message.GetHashKey())
+				idx := hashid % uint64(l)
+				messages = streamInfo.tasks[idx].messages
+			default:
+				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
+				return
+			}
+		} else {
+			messages = streamInfo.tasks[0].messages
+		}
 
-        messages <- message
-    }
+		messages.Append(t.taskid, message)
+	}
 }
 
 //关闭下游
@@ -125,9 +124,10 @@ func (t *ComponentCommon) closeDownstream() {
 			t.tb.mu.Lock()
 			taskInfo.dependentCnt -= 1
 			if taskInfo.dependentCnt == 0 {
-                //log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
-                close(taskInfo.messages)
-            }
+				//log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
+				//close(taskInfo.messages)
+				taskInfo.messages.Close()
+			}
 			t.tb.mu.Unlock()
 		}
 	}
@@ -149,6 +149,9 @@ func (t *Bolt) grouping(componentId string, streamId string, groupingType int) {
 	for i := 0; i < t.cc.parallelism; i++ {
 		t.cc.tasks[i].dependentCnt += t.cc.tb.commons[componentId].parallelism
 		streamInfo.tasks = append(streamInfo.tasks, t.cc.tasks[i])
+		for j := 0; j < t.cc.tb.commons[componentId].parallelism; j++ {
+			t.cc.tasks[i].messages.RegisterWriter(t.cc.tb.commons[componentId].tasks[j].taskid)
+		}
 	}
 }
 
@@ -167,12 +170,12 @@ func NewTopologyBuilder() *TopologyBuilder {
 }
 
 func (t *TopologyBuilder) newTaskid() int {
-    t.mu.Lock()
-    defer t.mu.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-    taskid := t.nextTaskid
-    t.nextTaskid++
-    return taskid
+	taskid := t.nextTaskid
+	t.nextTaskid++
+	return taskid
 }
 
 func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int) *Spout {
@@ -189,14 +192,14 @@ func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int) *S
 	cc.id = id
 	cc.parallelism = parallelism
 	cc.tb = t
-    cc.tasks = make([]*TaskInfo, 0, parallelism)
-    for i := 0; i < parallelism; i++ {
-        task := &TaskInfo{}
-        task.componentId = id
-        task.taskid = t.newTaskid()
-        task.cc = cc
-        cc.tasks = append(cc.tasks, task)
-    }
+	cc.tasks = make([]*TaskInfo, 0, parallelism)
+	for i := 0; i < parallelism; i++ {
+		task := &TaskInfo{}
+		task.componentId = id
+		task.taskid = t.newTaskid()
+		task.cc = cc
+		cc.tasks = append(cc.tasks, task)
+	}
 	t.commons[id] = cc
 
 	spout := &Spout{}
@@ -221,8 +224,9 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task := &TaskInfo{}
 		task.componentId = id
 		task.taskid = t.newTaskid()
-        task.cc = cc
-		task.messages = make(chan Message, bufSize) //缓冲设置
+		task.cc = cc
+		//task.messages = make(chan Message, bufSize) //缓冲设置
+		task.messages = NewMqueue(bufSize*parallelism, bufSize)
 		cc.tasks = append(cc.tasks, task)
 	}
 

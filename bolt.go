@@ -49,22 +49,24 @@ func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, index int) {
 	cc := t.commons[id]
 	ibolt := t.bolts[id].ibolt.NewInstance()
 
-    task := cc.tasks[index]
+	task := cc.tasks[index]
 	ibolt.Prepare(index, task, task)
 
-    var message Message
-    var more bool
+	//var message Message
+	//var more bool
+	var message interface{}
 
 loop:
 	for {
-        message, more = <- cc.tasks[index].messages
-		if !more {
-            //no more message
-            log.Printf("goBolt id:%s,%d receive stop signal", id, index)
-            break loop
-        }
+		//message, more = <- cc.tasks[index].messages
+		message = cc.tasks[index].messages.Get()
+		if message == nil {
+			//no more message
+			log.Printf("goBolt id:%s,%d receive stop signal", id, index)
+			break loop
+		}
 
-        ibolt.Execute(message)
+		ibolt.Execute(message.(Message))
 	}
 
 	ibolt.Cleanup()
