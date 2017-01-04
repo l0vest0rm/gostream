@@ -5,7 +5,7 @@ import (
 )
 
 type Message interface {
-	GetHashKey() uint64 //perfermance consider
+	GetHashKey(limit int) uint64 //perfermance consider,return [0, limit)
 	GetMsgType() int //获取消息类型,可以不同类型传输，然后下游根据类型区分
 }
 

@@ -10,8 +10,8 @@ import (
 
 type KafkaConsumerMessage sarama.ConsumerMessage
 
-func (t *KafkaConsumerMessage) GetHashKey() uint64 {
-    return uint64(t.Partition)
+func (t *KafkaConsumerMessage) GetHashKey(limit int) uint64 {
+    return uint64(t.Partition) % uint64(limit)
 }
 
 func (t *KafkaConsumerMessage) GetMsgType() int {

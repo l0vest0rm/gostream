@@ -77,9 +77,8 @@ func (t *TaskInfo) Emit(message Message) {
 			case GROUPING_SHUFFLE:
                 messages = streamInfo.tasks[rand.Intn(l)].messages
 			case GROUPING_KEY:
-				hashid := message.GetHashKey()
-				idx := hashid % uint64(l)
-                messages = streamInfo.tasks[idx].messages
+                hashid := message.GetHashKey(l)
+                messages = streamInfo.tasks[hashid].messages
 			default:
 				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
 				return
@@ -103,9 +102,8 @@ func (t *TaskInfo) EmitTo(message Message, streamid string) {
             case GROUPING_SHUFFLE:
                 messages = streamInfo.tasks[rand.Intn(l)].messages
             case GROUPING_KEY:
-                hashid := convertKey(message.GetHashKey())
-                idx := hashid % uint64(l)
-                messages = streamInfo.tasks[idx].messages
+                hashid := message.GetHashKey(l)
+                messages = streamInfo.tasks[hashid].messages
             default:
                 log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
                 return

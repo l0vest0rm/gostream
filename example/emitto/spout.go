@@ -34,7 +34,7 @@ type MySpout struct {
 	stop chan bool
 }
 
-func (t *WordMsg) GetHashKey() uint64 {
+func (t *WordMsg) GetHashKey(limit int) uint64 {
     return murmur3.Sum64([]byte(t.Key))
 }
 
