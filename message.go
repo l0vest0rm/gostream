@@ -5,7 +5,9 @@ import (
 )
 
 type Message interface {
-	GetHashKey(limit int) uint64 //perfermance consider,return [0, limit)
+    //@srcIndex index of the component
+    //return [0, dstPrallelism)
+	GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64
 	GetMsgType() int //获取消息类型,可以不同类型传输，然后下游根据类型区分
 }
 

@@ -34,7 +34,7 @@ type MySpout struct {
     ts int64
 }
 
-func (t MyMsg) GetHashKey(limit int) uint64 {
+func (t MyMsg) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
     return uint64(t)
 }
 

@@ -6,12 +6,20 @@ import (
 	log "github.com/cihub/seelog"
 	"github.com/wvanbergen/kafka/consumergroup"
 	"time"
+    "math/rand"
 )
 
 type KafkaConsumerMessage sarama.ConsumerMessage
 
-func (t *KafkaConsumerMessage) GetHashKey(limit int) uint64 {
-    return uint64(t.Partition) % uint64(limit)
+//尽量确保发送者多个goroutine之间不竞争,srcPrallelism和dstPrallelism之间必须是倍数关系
+func (t *KafkaConsumerMessage) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+    if srcPrallelism == dstPrallelism {
+        return uint64(srcIndex)
+    } else if srcPrallelism > dstPrallelism {
+        return uint64(srcIndex % dstPrallelism)
+    } else {
+        return uint64(rand.Intn(dstPrallelism/srcPrallelism) * srcPrallelism + srcIndex)
+    }
 }
 
 func (t *KafkaConsumerMessage) GetMsgType() int {

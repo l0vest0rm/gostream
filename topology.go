@@ -26,8 +26,9 @@ type Bolt struct {
 
 type TaskInfo struct {
     cc *ComponentCommon
+    taskid       int //taskid 全局唯一
 	componentId  string
-	taskid       int //taskid 全局唯一
+	index int //本component内的索引
 	dependentCnt int //依赖messages的上游发送者的数目
 	messages chan Message
 }
@@ -69,15 +70,16 @@ func (t *TaskInfo) GetThisComponentId() string {
 
 func (t *TaskInfo) Emit(message Message) {
 	var messages chan Message
+    cc := t.cc
 	//todo此处可并发
-	for _, streamInfo := range t.cc.streams {
+	for _, streamInfo := range cc.streams {
 		l := len(streamInfo.tasks)
 		if l > 1 {
 			switch streamInfo.groupingType {
 			case GROUPING_SHUFFLE:
                 messages = streamInfo.tasks[rand.Intn(l)].messages
 			case GROUPING_KEY:
-                hashid := message.GetHashKey(l)
+                hashid := message.GetHashKey(cc.parallelism, t.index, l)
                 messages = streamInfo.tasks[hashid].messages
 			default:
 				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
@@ -94,7 +96,7 @@ func (t *TaskInfo) Emit(message Message) {
 
 func (t *TaskInfo) EmitTo(message Message, streamid string) {
     var messages chan Message
-
+    cc := t.cc
     if streamInfo, ok := t.cc.streams[streamid];ok{
         l := len(streamInfo.tasks)
         if l > 1 {
@@ -102,7 +104,7 @@ func (t *TaskInfo) EmitTo(message Message, streamid string) {
             case GROUPING_SHUFFLE:
                 messages = streamInfo.tasks[rand.Intn(l)].messages
             case GROUPING_KEY:
-                hashid := message.GetHashKey(l)
+                hashid := message.GetHashKey(cc.parallelism, t.index, l)
                 messages = streamInfo.tasks[hashid].messages
             default:
                 log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
@@ -192,6 +194,7 @@ func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int) *S
         task := &TaskInfo{}
         task.componentId = id
         task.taskid = t.newTaskid()
+        task.index = i
         task.cc = cc
         cc.tasks = append(cc.tasks, task)
     }
@@ -219,6 +222,7 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task := &TaskInfo{}
 		task.componentId = id
 		task.taskid = t.newTaskid()
+        task.index = i
         task.cc = cc
 		task.messages = make(chan Message, bufSize) //缓冲设置
 		cc.tasks = append(cc.tasks, task)
