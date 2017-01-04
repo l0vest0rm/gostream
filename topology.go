@@ -77,7 +77,7 @@ func (t *TaskInfo) Emit(message Message) {
 			case GROUPING_SHUFFLE:
                 messages = streamInfo.tasks[rand.Intn(l)].messages
 			case GROUPING_KEY:
-				hashid := convertKey(message.GetHashKey())
+				hashid := message.GetHashKey()
 				idx := hashid % uint64(l)
                 messages = streamInfo.tasks[idx].messages
 			default:

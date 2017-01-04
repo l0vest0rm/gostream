@@ -5,6 +5,7 @@ import (
 
 	"github.com/l0vest0rm/gostream"
     "time"
+    "github.com/spaolacci/murmur3"
 )
 
 type WordMsg struct {
@@ -17,8 +18,8 @@ type MySpout struct {
     ts int64
 }
 
-func (t *WordMsg) GetHashKey() interface{} {
-	return t.Key
+func (t *WordMsg) GetHashKey() uint64 {
+	return murmur3.Sum64([]byte(t.Key))
 }
 
 func (t *WordMsg) GetMsgType() int {
