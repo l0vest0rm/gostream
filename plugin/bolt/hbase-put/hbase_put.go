@@ -7,6 +7,7 @@ import (
 	"github.com/l0vest0rm/go-hbase"
 	"github.com/l0vest0rm/gostream"
 	log "github.com/cihub/seelog"
+	"github.com/spaolacci/murmur3"
 )
 
 type HbasePutMessage struct {
@@ -22,8 +23,8 @@ type HbasePutBolt struct {
 	hc       hbase.HBaseClient
 }
 
-func (t *HbasePutMessage) GetHashKey() interface{} {
-	return t.RowKey
+func (t *HbasePutMessage) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+	return murmur3.Sum64([]byte(t.RowKey))
 }
 
 func (t *HbasePutMessage) GetMsgType() int {
