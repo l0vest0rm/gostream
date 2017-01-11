@@ -24,7 +24,7 @@ type HbasePutBolt struct {
 }
 
 func (t *HbasePutMessage) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
-	return murmur3.Sum64([]byte(t.RowKey))
+	return murmur3.Sum64([]byte(t.RowKey)) % uint64(dstPrallelism)
 }
 
 func (t *HbasePutMessage) GetMsgType() int {

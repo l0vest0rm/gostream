@@ -80,6 +80,9 @@ func (t *TaskInfo) Emit(message Message) {
                 messages = streamInfo.tasks[rand.Intn(l)].messages
 			case GROUPING_KEY:
                 hashid := message.GetHashKey(cc.parallelism, t.index, l)
+				if hashid >= l {
+					hashid = hashid % l
+				}
                 messages = streamInfo.tasks[hashid].messages
 			default:
 				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
