@@ -5,6 +5,7 @@ import (
 	log "github.com/cihub/seelog"
 	"github.com/Shopify/sarama"
 	kazoo "github.com/wvanbergen/kazoo-go"
+    "github.com/spaolacci/murmur3"
 )
 
 type ProducerMessage struct {
@@ -20,8 +21,8 @@ type KafkaProducerBolt struct {
     producer sarama.SyncProducer
 }
 
-func (t *ProducerMessage) GetHashKey() interface{} {
-	return t.Key
+func (t *ProducerMessage) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+    return murmur3.Sum64([]byte(t.Key))/uint64(dstPrallelism)
 }
 
 func (t *ProducerMessage) GetMsgType() int {
