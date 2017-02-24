@@ -240,8 +240,8 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 }
 
 //设置数据统计周期，即多少秒输出一次统计数据(0表示不周期输出)
-func (t *TopologyBuilder) SetStatistics(interval int64) {
-
+func (t *TopologyBuilder) SetStatistics(statInterval int64) {
+    t.statInterval = statInterval
 }
 
 func goSignalListen(stop chan bool) {
