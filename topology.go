@@ -48,6 +48,7 @@ type ComponentCommon struct {
 }
 
 type TopologyBuilder struct {
+    statInterval int64 //统计reset周期，单位秒
 	mu      sync.RWMutex
     nextTaskid int
 	spouts  map[string]*Spout
@@ -236,6 +237,11 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 	t.bolts[id] = bolt
 
 	return bolt
+}
+
+//设置数据统计周期，即多少秒输出一次统计数据(0表示不周期输出)
+func (t *TopologyBuilder) SetStatistics(interval int64) {
+
 }
 
 func goSignalListen(stop chan bool) {

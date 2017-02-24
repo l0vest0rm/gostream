@@ -3,6 +3,7 @@ package gostream
 import (
 	"log"
 	"sync"
+    "time"
 )
 
 type ISpout interface {
@@ -50,6 +51,9 @@ func (t *TopologyBuilder) goSpout(wg *sync.WaitGroup, stop chan bool, id string,
 	task := cc.tasks[index]
 	ispout.Open(index, task, task)
 
+    lastTs := time.Now().Unix()
+	counter := int64(0)  //计数器
+
 loop:
 	for {
 		select {
@@ -57,11 +61,22 @@ loop:
 			log.Printf("goSpout id:%s,%d receive stop signal", id, index)
 			break loop
 		default:
+            now := time.Now().Unix()
+            if t.statInterval > 0 && now > lastTs + t.statInterval {
+                log.Printf("goSpout id:%s,%d speed %d/s", id, index, counter/t.statInterval)
+                lastTs = now
+                counter = 0
+            }
 			ispout.NextTuple()
+            counter += 1
 		}
 	}
 
 	ispout.Close()
 	cc.closeDownstream()
-	log.Printf("goSpout,%s,%d stopped", id, index)
+    if t.statInterval > 0 {
+        log.Printf("goSpout,%s,%d stopped, speed %d/s", id, index, counter/t.statInterval)
+    } else {
+        log.Printf("goSpout,%s,%d stopped", id, index)
+    }
 }
