@@ -50,31 +50,32 @@ func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, index int) {
 	cc := t.commons[id]
 	ibolt := t.bolts[id].ibolt.NewInstance()
 
-    task := cc.tasks[index]
+	task := cc.tasks[index]
 	ibolt.Prepare(index, task, task)
 
-    var message Message
-    var more bool
+	var message interface{}
+	var err error
 	lastTs := time.Now().Unix()
-	counter := int64(0)  //计数器
+	counter := int64(0) //计数器
 
 loop:
 	for {
-        message, more = <- cc.tasks[index].messages
-		if !more {
-            //no more message
-            log.Printf("goBolt id:%s,%d receive stop signal", id, index)
-            break loop
-        }
+		//message, more = <- cc.tasks[index].messages
+		message, err = cc.tasks[index].messages.Get()
+		if err != nil {
+			//no more message
+			log.Printf("goBolt id:%s,%d receive stop signal", id, index)
+			break loop
+		}
 
 		now := time.Now().Unix()
-		if t.statInterval > 0 && now > lastTs + t.statInterval {
+		if t.statInterval > 0 && now > lastTs+t.statInterval {
 			log.Printf("goSpout id:%s,%d speed %d/s", id, index, counter/t.statInterval)
 			lastTs = now
 			counter = 0
 		}
-        ibolt.Execute(message)
-		counter += 1
+		ibolt.Execute(message.(Message))
+		counter++
 	}
 
 	ibolt.Cleanup()

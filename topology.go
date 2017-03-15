@@ -7,6 +7,8 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+
+	"github.com/Workiva/go-datastructures/queue"
 )
 
 const (
@@ -30,7 +32,7 @@ type TaskInfo struct {
 	componentId  string
 	index        int //本component内的索引
 	dependentCnt int //依赖messages的上游发送者的数目
-	messages     chan Message
+	messages     *queue.RingBuffer
 }
 
 type StreamInfo struct {
@@ -70,7 +72,7 @@ func (t *TaskInfo) GetThisComponentId() string {
 }
 
 func (t *TaskInfo) Emit(message Message) {
-	var messages chan Message
+	var messages *queue.RingBuffer
 	cc := t.cc
 	//todo此处可并发
 	for _, streamInfo := range cc.streams {
@@ -90,12 +92,12 @@ func (t *TaskInfo) Emit(message Message) {
 			messages = streamInfo.tasks[0].messages
 		}
 
-		messages <- message
+		messages.Put(message)
 	}
 }
 
 func (t *TaskInfo) EmitTo(message Message, streamid string) {
-	var messages chan Message
+	var messages *queue.RingBuffer
 	cc := t.cc
 	if streamInfo, ok := t.cc.streams[streamid]; ok {
 		l := len(streamInfo.tasks)
@@ -114,7 +116,7 @@ func (t *TaskInfo) EmitTo(message Message, streamid string) {
 			messages = streamInfo.tasks[0].messages
 		}
 
-		messages <- message
+		messages.Put(message)
 	}
 }
 
@@ -123,10 +125,11 @@ func (t *ComponentCommon) closeDownstream() {
 	for _, streamInfo := range t.streams {
 		for _, taskInfo := range streamInfo.tasks {
 			t.tb.mu.Lock()
-			taskInfo.dependentCnt -= 1
+			taskInfo.dependentCnt--
 			if taskInfo.dependentCnt == 0 {
 				//log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
-				close(taskInfo.messages)
+				//close(taskInfo.messages)
+				taskInfo.messages.Dispose()
 			}
 			t.tb.mu.Unlock()
 		}
@@ -224,7 +227,8 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task.taskid = t.newTaskid()
 		task.index = i
 		task.cc = cc
-		task.messages = make(chan Message, bufSize) //缓冲设置
+		//task.messages = make(chan Message, bufSize) //缓冲设置
+		task.messages = queue.NewRingBuffer(uint64(bufSize))
 		cc.tasks = append(cc.tasks, task)
 	}
 
