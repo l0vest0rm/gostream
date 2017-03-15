@@ -19,54 +19,55 @@
 package main
 
 import (
-    "log"
+	"log"
 
-    "github.com/l0vest0rm/gostream"
-    "time"
-    "math/rand"
+	"math/rand"
+	"time"
+
+	"github.com/l0vest0rm/gostream"
 )
 
 type MyMsg uint64
 
 type MySpout struct {
-    *gostream.BaseSpout
-    sum  int64
-    ts int64
+	*gostream.BaseSpout
+	sum int64
+	ts  int64
 }
 
 func (t MyMsg) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
-    return uint64(t)
+	return uint64(t) % uint64(dstPrallelism)
 }
 
 func (t MyMsg) GetMsgType() int {
-    return 0
+	return 0
 }
 
 func NewMySpout() gostream.ISpout {
-    t := &MySpout{}
-    t.BaseSpout = gostream.NewBaseSpout()
-    return t
+	t := &MySpout{}
+	t.BaseSpout = gostream.NewBaseSpout()
+	return t
 }
 
 func (t *MySpout) NewInstance() gostream.ISpout {
-    t1 := &MySpout{}
-    t1.BaseSpout = t.BaseSpout.Copy()
+	t1 := &MySpout{}
+	t1.BaseSpout = t.BaseSpout.Copy()
 
-    return t1
+	return t1
 }
 
 func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
-    t.BaseSpout.Open(index, context, collector)
-    t.ts = time.Now().Unix()
+	t.BaseSpout.Open(index, context, collector)
+	t.ts = time.Now().Unix()
 }
 
 func (t *MySpout) Close() {
-    usedTs := time.Now().Unix() - t.ts
+	usedTs := time.Now().Unix() - t.ts
 
-    log.Printf("MySpout,index:%d,sum:%d,usedTs:%d, %d/s\n", t.Index, t.sum, usedTs, t.sum/usedTs)
+	log.Printf("MySpout,index:%d,sum:%d,usedTs:%d, %d/s\n", t.Index, t.sum, usedTs, t.sum/usedTs)
 }
 
 func (t *MySpout) NextTuple() {
-    t.Collector.Emit(MyMsg(rand.Int63()))
-    t.sum += 1
+	t.Collector.Emit(MyMsg(rand.Int63()))
+	t.sum += 1
 }
