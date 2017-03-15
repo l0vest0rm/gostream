@@ -123,7 +123,7 @@ func (t *ComponentCommon) closeDownstream() {
 	for _, streamInfo := range t.streams {
 		for _, taskInfo := range streamInfo.tasks {
 			t.tb.mu.Lock()
-			taskInfo.dependentCnt -= 1
+			taskInfo.dependentCnt--
 			if taskInfo.dependentCnt == 0 {
 				//log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
 				close(taskInfo.messages)
@@ -254,7 +254,7 @@ func goSignalListen(stop chan bool) {
 }
 
 func (t *TopologyBuilder) startSpouts(wg *sync.WaitGroup, stop chan bool) {
-	for id, _ := range t.spouts {
+	for id := range t.spouts {
 		for i := 0; i < t.commons[id].parallelism; i++ {
 			wg.Add(1)
 			go t.goSpout(wg, stop, id, i)
@@ -263,7 +263,7 @@ func (t *TopologyBuilder) startSpouts(wg *sync.WaitGroup, stop chan bool) {
 }
 
 func (t *TopologyBuilder) startBolts(wg *sync.WaitGroup) {
-	for id, _ := range t.bolts {
+	for id := range t.bolts {
 		for i := 0; i < t.commons[id].parallelism; i++ {
 			wg.Add(1)
 			go t.goBolt(wg, id, i)
