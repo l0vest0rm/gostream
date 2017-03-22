@@ -1,28 +1,33 @@
 package kafkap
 
 import (
-	"github.com/l0vest0rm/gostream"
-	log "github.com/cihub/seelog"
 	"github.com/Shopify/sarama"
+	log "github.com/cihub/seelog"
+	"github.com/l0vest0rm/gostream"
+	"github.com/spaolacci/murmur3"
 	kazoo "github.com/wvanbergen/kazoo-go"
     "github.com/spaolacci/murmur3"
 )
 
 type ProducerMessage struct {
 	Topic string
-	Key string
+	Key   string
 	Value []byte
 }
 
 type KafkaProducerBolt struct {
 	*gostream.BaseBolt
-    zkHosts  []string
-    chroot   string
-    producer sarama.SyncProducer
+	zkHosts  []string
+	chroot   string
+	producer sarama.SyncProducer
 }
 
 func (t *ProducerMessage) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+<<<<<<< HEAD
     return murmur3.Sum64([]byte(t.Key))/uint64(dstPrallelism)
+=======
+	return murmur3.Sum64([]byte(t.Key)) % uint64(dstPrallelism)
+>>>>>>> master
 }
 
 func (t *ProducerMessage) GetMsgType() int {
@@ -59,35 +64,35 @@ func (t *KafkaProducerBolt) Prepare(index int, context gostream.TopologyContext,
 	log.Debugf("KafkaProducerBolt Prepare,%d", index)
 	t.BaseBolt.Prepare(index, context, collector)
 
-    //获取zookeeper连接
-    zkConfig := kazoo.NewConfig()
-    if t.chroot != "" {
-        zkConfig.Chroot = t.chroot
-    }
-    kz, err := kazoo.NewKazoo(t.zkHosts, zkConfig)
-    if err != nil {
-        return
-    }
-    defer kz.Close()
-    brokers, err := kz.BrokerList()
-    if err != nil {
-        return
-    }
-    if len(brokers) == 0 {
-        log.Errorf("KafkaProducerBolt,Prepare,len(brokers) == 0")
-        return
-    }
+	//获取zookeeper连接
+	zkConfig := kazoo.NewConfig()
+	if t.chroot != "" {
+		zkConfig.Chroot = t.chroot
+	}
+	kz, err := kazoo.NewKazoo(t.zkHosts, zkConfig)
+	if err != nil {
+		return
+	}
+	defer kz.Close()
+	brokers, err := kz.BrokerList()
+	if err != nil {
+		return
+	}
+	if len(brokers) == 0 {
+		log.Errorf("KafkaProducerBolt,Prepare,len(brokers) == 0")
+		return
+	}
 
-    config := sarama.NewConfig()
-    config.Producer.RequiredAcks = sarama.NoResponse // Wait for all in-sync replicas to ack the message
-    config.Producer.Compression = sarama.CompressionGZIP
-    //按照key hash
-    config.Producer.Partitioner = sarama.NewRandomPartitioner
-    t.producer, err = sarama.NewSyncProducer(brokers, config)
-    if err != nil {
-        log.Errorf("KafkaProducerBolt,Prepare,err:%s",err.Error())
-        return
-    }
+	config := sarama.NewConfig()
+	config.Producer.RequiredAcks = sarama.NoResponse // Wait for all in-sync replicas to ack the message
+	config.Producer.Compression = sarama.CompressionGZIP
+	//按照key hash
+	config.Producer.Partitioner = sarama.NewRandomPartitioner
+	t.producer, err = sarama.NewSyncProducer(brokers, config)
+	if err != nil {
+		log.Errorf("KafkaProducerBolt,Prepare,err:%s", err.Error())
+		return
+	}
 }
 
 func (t *KafkaProducerBolt) Cleanup() {
@@ -98,12 +103,12 @@ func (t *KafkaProducerBolt) Cleanup() {
 
 func (t *KafkaProducerBolt) Execute(imessage gostream.Message) {
 	msg := imessage.(*ProducerMessage)
-    message := &sarama.ProducerMessage{
-        Topic: msg.Topic,
-        Key:   sarama.StringEncoder(msg.Key),
-        Value: sarama.ByteEncoder(msg.Value)}
-    _, _, err := t.producer.SendMessage(message)
-    if err != nil {
-        log.Errorf("KafkaProducerBolt,Execute,topic:%s,err:%s", msg.Topic,err.Error)
-    }
+	message := &sarama.ProducerMessage{
+		Topic: msg.Topic,
+		Key:   sarama.StringEncoder(msg.Key),
+		Value: sarama.ByteEncoder(msg.Value)}
+	_, _, err := t.producer.SendMessage(message)
+	if err != nil {
+		log.Errorf("KafkaProducerBolt,Execute,topic:%s,err:%s", msg.Topic, err.Error)
+	}
 }

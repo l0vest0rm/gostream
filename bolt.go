@@ -3,6 +3,7 @@ package gostream
 import (
 	"log"
 	"sync"
+	"time"
 )
 
 type IBolt interface {
@@ -49,25 +50,38 @@ func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, index int) {
 	cc := t.commons[id]
 	ibolt := t.bolts[id].ibolt.NewInstance()
 
-    task := cc.tasks[index]
+	task := cc.tasks[index]
 	ibolt.Prepare(index, task, task)
 
-    var message Message
-    var more bool
+	var message Message
+	var more bool
+	lastTs := time.Now().Unix()
+	counter := int64(0) //计数器
 
 loop:
 	for {
-        message, more = <- cc.tasks[index].messages
+		message, more = <-cc.tasks[index].messages
 		if !more {
-            //no more message
-            log.Printf("goBolt id:%s,%d receive stop signal", id, index)
-            break loop
-        }
+			//no more message
+			log.Printf("goBolt id:%s,%d receive stop signal", id, index)
+			break loop
+		}
 
-        ibolt.Execute(message)
+		now := time.Now().Unix()
+		if t.statInterval > 0 && now > lastTs+t.statInterval {
+			log.Printf("goSpout id:%s,%d speed %d/s", id, index, counter/t.statInterval)
+			lastTs = now
+			counter = 0
+		}
+		ibolt.Execute(message)
+		counter++
 	}
 
 	ibolt.Cleanup()
 	cc.closeDownstream()
-	log.Printf("goBolt,%s,%d stopped", id, index)
+	if t.statInterval > 0 {
+		log.Printf("goBolt,%s,%d stopped, speed %d/s", id, index, counter/t.statInterval)
+	} else {
+		log.Printf("goBolt,%s,%d stopped", id, index)
+	}
 }

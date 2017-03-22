@@ -80,6 +80,7 @@ func (t *KafkaSpout) Open(index int, context gostream.TopologyContext, collector
 	var err error
 	cfg := consumergroup.NewConfig()
 	cfg.Zookeeper.Chroot = t.kafkaCfg.Chroot
+    cfg.Zookeeper.Timeout = 120 * time.Second
 	cfg.Offsets.Initial = t.kafkaCfg.OffsetInitial
 	cfg.Offsets.ProcessingTimeout = 10 * time.Second
 	cfg.Consumer.MaxProcessingTime = 200 * time.Millisecond

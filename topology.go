@@ -15,8 +15,8 @@ const (
 )
 
 type Spout struct {
-	cc      *ComponentCommon
-	ispout  ISpout
+	cc     *ComponentCommon
+	ispout ISpout
 }
 
 type Bolt struct {
@@ -25,12 +25,12 @@ type Bolt struct {
 }
 
 type TaskInfo struct {
-    cc *ComponentCommon
-    taskid       int //taskid 全局唯一
+	cc           *ComponentCommon
+	taskid       int //taskid 全局唯一
 	componentId  string
-	index int //本component内的索引
+	index        int //本component内的索引
 	dependentCnt int //依赖messages的上游发送者的数目
-	messages chan Message
+	messages     chan Message
 }
 
 type StreamInfo struct {
@@ -48,16 +48,17 @@ type ComponentCommon struct {
 }
 
 type TopologyBuilder struct {
-	mu      sync.RWMutex
-    nextTaskid int
-	spouts  map[string]*Spout
-	bolts   map[string]*Bolt
-	commons map[string]*ComponentCommon
+	statInterval int64 //统计reset周期，单位秒
+	mu           sync.RWMutex
+	nextTaskid   int
+	spouts       map[string]*Spout
+	bolts        map[string]*Bolt
+	commons      map[string]*ComponentCommon
 }
 
 type IOutputCollector interface {
-    Emit(message Message)
-    EmitTo(message Message, streamid string)
+	Emit(message Message)
+	EmitTo(message Message, streamid string)
 }
 
 type TopologyContext interface {
@@ -70,52 +71,51 @@ func (t *TaskInfo) GetThisComponentId() string {
 
 func (t *TaskInfo) Emit(message Message) {
 	var messages chan Message
-    cc := t.cc
+	cc := t.cc
 	//todo此处可并发
 	for _, streamInfo := range cc.streams {
 		l := len(streamInfo.tasks)
 		if l > 1 {
 			switch streamInfo.groupingType {
 			case GROUPING_SHUFFLE:
-                messages = streamInfo.tasks[rand.Intn(l)].messages
+				messages = streamInfo.tasks[rand.Intn(l)].messages
 			case GROUPING_KEY:
-                hashid := message.GetHashKey(cc.parallelism, t.index, l)
-                messages = streamInfo.tasks[hashid].messages
+				hashid := message.GetHashKey(cc.parallelism, t.index, l)
+				messages = streamInfo.tasks[hashid].messages
 			default:
 				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
 				return
 			}
 		} else {
-            messages = streamInfo.tasks[0].messages
+			messages = streamInfo.tasks[0].messages
 		}
 
-        messages <- message
+		messages <- message
 	}
 }
 
-
 func (t *TaskInfo) EmitTo(message Message, streamid string) {
-    var messages chan Message
-    cc := t.cc
-    if streamInfo, ok := t.cc.streams[streamid];ok{
-        l := len(streamInfo.tasks)
-        if l > 1 {
-            switch streamInfo.groupingType {
-            case GROUPING_SHUFFLE:
-                messages = streamInfo.tasks[rand.Intn(l)].messages
-            case GROUPING_KEY:
-                hashid := message.GetHashKey(cc.parallelism, t.index, l)
-                messages = streamInfo.tasks[hashid].messages
-            default:
-                log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
-                return
-            }
-        } else {
-            messages = streamInfo.tasks[0].messages
-        }
+	var messages chan Message
+	cc := t.cc
+	if streamInfo, ok := t.cc.streams[streamid]; ok {
+		l := len(streamInfo.tasks)
+		if l > 1 {
+			switch streamInfo.groupingType {
+			case GROUPING_SHUFFLE:
+				messages = streamInfo.tasks[rand.Intn(l)].messages
+			case GROUPING_KEY:
+				hashid := message.GetHashKey(cc.parallelism, t.index, l)
+				messages = streamInfo.tasks[hashid].messages
+			default:
+				log.Fatalf("unknown groupingType:%d\n", streamInfo.groupingType)
+				return
+			}
+		} else {
+			messages = streamInfo.tasks[0].messages
+		}
 
-        messages <- message
-    }
+		messages <- message
+	}
 }
 
 //关闭下游
@@ -123,11 +123,11 @@ func (t *ComponentCommon) closeDownstream() {
 	for _, streamInfo := range t.streams {
 		for _, taskInfo := range streamInfo.tasks {
 			t.tb.mu.Lock()
-			taskInfo.dependentCnt -= 1
+			taskInfo.dependentCnt--
 			if taskInfo.dependentCnt == 0 {
-                //log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
-                close(taskInfo.messages)
-            }
+				//log.Printf("close channel,componentId:%s,taskid:%d\n", taskInfo.componentId, taskInfo.taskid)
+				close(taskInfo.messages)
+			}
 			t.tb.mu.Unlock()
 		}
 	}
@@ -167,12 +167,12 @@ func NewTopologyBuilder() *TopologyBuilder {
 }
 
 func (t *TopologyBuilder) newTaskid() int {
-    t.mu.Lock()
-    defer t.mu.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-    taskid := t.nextTaskid
-    t.nextTaskid++
-    return taskid
+	taskid := t.nextTaskid
+	t.nextTaskid++
+	return taskid
 }
 
 func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int) *Spout {
@@ -189,15 +189,15 @@ func (t *TopologyBuilder) SetSpout(id string, ispout ISpout, parallelism int) *S
 	cc.id = id
 	cc.parallelism = parallelism
 	cc.tb = t
-    cc.tasks = make([]*TaskInfo, 0, parallelism)
-    for i := 0; i < parallelism; i++ {
-        task := &TaskInfo{}
-        task.componentId = id
-        task.taskid = t.newTaskid()
-        task.index = i
-        task.cc = cc
-        cc.tasks = append(cc.tasks, task)
-    }
+	cc.tasks = make([]*TaskInfo, 0, parallelism)
+	for i := 0; i < parallelism; i++ {
+		task := &TaskInfo{}
+		task.componentId = id
+		task.taskid = t.newTaskid()
+		task.index = i
+		task.cc = cc
+		cc.tasks = append(cc.tasks, task)
+	}
 	t.commons[id] = cc
 
 	spout := &Spout{}
@@ -222,8 +222,8 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 		task := &TaskInfo{}
 		task.componentId = id
 		task.taskid = t.newTaskid()
-        task.index = i
-        task.cc = cc
+		task.index = i
+		task.cc = cc
 		task.messages = make(chan Message, bufSize) //缓冲设置
 		cc.tasks = append(cc.tasks, task)
 	}
@@ -238,6 +238,11 @@ func (t *TopologyBuilder) SetBolt(id string, ibolt IBolt, parallelism int, bufSi
 	return bolt
 }
 
+//设置数据统计周期，即多少秒输出一次统计数据(0表示不周期输出)
+func (t *TopologyBuilder) SetStatistics(statInterval int64) {
+	t.statInterval = statInterval
+}
+
 func goSignalListen(stop chan bool) {
 	c := make(chan os.Signal)
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
@@ -249,7 +254,7 @@ func goSignalListen(stop chan bool) {
 }
 
 func (t *TopologyBuilder) startSpouts(wg *sync.WaitGroup, stop chan bool) {
-	for id, _ := range t.spouts {
+	for id := range t.spouts {
 		for i := 0; i < t.commons[id].parallelism; i++ {
 			wg.Add(1)
 			go t.goSpout(wg, stop, id, i)
@@ -258,7 +263,7 @@ func (t *TopologyBuilder) startSpouts(wg *sync.WaitGroup, stop chan bool) {
 }
 
 func (t *TopologyBuilder) startBolts(wg *sync.WaitGroup) {
-	for id, _ := range t.bolts {
+	for id := range t.bolts {
 		for i := 0; i < t.commons[id].parallelism; i++ {
 			wg.Add(1)
 			go t.goBolt(wg, id, i)
