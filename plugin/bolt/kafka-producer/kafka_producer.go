@@ -6,7 +6,6 @@ import (
 	"github.com/l0vest0rm/gostream"
 	"github.com/spaolacci/murmur3"
 	kazoo "github.com/wvanbergen/kazoo-go"
-    "github.com/spaolacci/murmur3"
 )
 
 type ProducerMessage struct {
@@ -23,11 +22,7 @@ type KafkaProducerBolt struct {
 }
 
 func (t *ProducerMessage) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
-<<<<<<< HEAD
-    return murmur3.Sum64([]byte(t.Key))/uint64(dstPrallelism)
-=======
 	return murmur3.Sum64([]byte(t.Key)) % uint64(dstPrallelism)
->>>>>>> master
 }
 
 func (t *ProducerMessage) GetMsgType() int {
