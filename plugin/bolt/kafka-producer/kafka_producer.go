@@ -104,6 +104,6 @@ func (t *KafkaProducerBolt) Execute(imessage gostream.Message) {
 		Value: sarama.ByteEncoder(msg.Value)}
 	_, _, err := t.producer.SendMessage(message)
 	if err != nil {
-		log.Errorf("KafkaProducerBolt,Execute,topic:%s,err:%s", msg.Topic, err.Error)
+		log.Errorf("KafkaProducerBolt,Execute,topic:%s,err:%s", msg.Topic, err.Error())
 	}
 }
