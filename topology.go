@@ -46,12 +46,21 @@ type ComponentCommon struct {
 	streams map[string]*StreamInfo //输出
 }
 
+type groupInfo struct {
+	rcvID        string //receiver component id
+	sndID        string //sender component id
+	streamID     string //sender streamId
+	groupingType int
+}
+
+// TopologyBuilder topo struct
 type TopologyBuilder struct {
-	statInterval int64 //统计reset周期，单位秒
-	mu           sync.RWMutex
-	spouts       map[string]*Spout
-	bolts        map[string]*Bolt
-	commons      map[string]*ComponentCommon
+	statInterval  int64 //统计reset周期，单位秒
+	mu            sync.RWMutex
+	spouts        map[string]*Spout
+	bolts         map[string]*Bolt
+	commons       map[string]*ComponentCommon
+	pendGroupings []*groupInfo
 }
 
 type IOutputCollector interface {
@@ -151,16 +160,26 @@ func (t *Bolt) grouping(componentId string, streamId string, groupingType int) {
 }
 
 func (t *Bolt) ShuffleGrouping(componentId string, streamId string) {
-	t.grouping(componentId, streamId, GROUPING_SHUFFLE)
+	t.pendGrouping(componentId, streamId, GROUPING_SHUFFLE)
 }
 
 func (t *Bolt) KeyGrouping(componentId string, streamId string) {
-	t.grouping(componentId, streamId, GROUPING_KEY)
+	t.pendGrouping(componentId, streamId, GROUPING_KEY)
+}
+
+func (t *Bolt) pendGrouping(componentID string, streamID string, groupingType int) {
+	gi := &groupInfo{}
+	gi.rcvID = t.cc.id
+	gi.sndID = componentID
+	gi.streamID = streamID
+	gi.groupingType = groupingType
+	t.cc.tb.pendGroupings = append(t.cc.tb.pendGroupings, gi)
 }
 
 func NewTopologyBuilder() *TopologyBuilder {
 	tb := &TopologyBuilder{}
 	tb.commons = make(map[string]*ComponentCommon)
+	tb.pendGroupings = make([]*groupInfo, 0)
 	return tb
 }
 
@@ -258,10 +277,37 @@ func (t *TopologyBuilder) startBolts(wg *sync.WaitGroup) {
 	}
 }
 
+func (t *TopologyBuilder) grouping(gi *groupInfo) {
+	if t.commons[gi.sndID].streams == nil {
+		t.commons[gi.sndID].streams = make(map[string]*StreamInfo)
+	}
+
+	streamInfo, ok := t.commons[gi.sndID].streams[gi.streamID]
+	if !ok {
+		streamInfo = &StreamInfo{}
+		streamInfo.groupingType = gi.groupingType
+		streamInfo.tasks = make([]*TaskInfo, 0, t.commons[gi.sndID].parallelism)
+		t.commons[gi.sndID].streams[gi.streamID] = streamInfo
+	}
+
+	for i := 0; i < t.commons[gi.rcvID].parallelism; i++ {
+		t.commons[gi.rcvID].tasks[i].dependentCnt += t.commons[gi.sndID].parallelism
+		streamInfo.tasks = append(streamInfo.tasks, t.commons[gi.rcvID].tasks[i])
+	}
+}
+
+func (t *TopologyBuilder) dealPendGroupings() {
+	for _, gi := range t.pendGroupings {
+		t.grouping(gi)
+	}
+}
+
+// Run TopologyBuilder
 func (t *TopologyBuilder) Run() {
 	var wg sync.WaitGroup
 	stop := make(chan bool)
 
+	t.dealPendGroupings()
 	t.startSpouts(&wg, stop)
 	t.startBolts(&wg)
 
