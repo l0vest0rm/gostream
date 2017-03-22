@@ -3,9 +3,10 @@ package main
 import (
 	"log"
 
+	"time"
+
 	"github.com/l0vest0rm/gostream"
-    "time"
-    "github.com/spaolacci/murmur3"
+	"github.com/spaolacci/murmur3"
 )
 
 type WordMsg struct {
@@ -14,12 +15,12 @@ type WordMsg struct {
 
 type MySpout struct {
 	*gostream.BaseSpout
-	sum  int64
-    ts int64
+	sum int64
+	ts  int64
 }
 
 func (t *WordMsg) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
-	return murmur3.Sum64([]byte(t.Key))
+	return murmur3.Sum64([]byte(t.Key)) % uint64(dstPrallelism)
 }
 
 func (t *WordMsg) GetMsgType() int {
@@ -54,11 +55,11 @@ func (t *MySpout) NewInstance() gostream.ISpout {
 
 func (t *MySpout) Open(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
 	t.BaseSpout.Open(index, context, collector)
-    t.ts = time.Now().Unix()
+	t.ts = time.Now().Unix()
 }
 
 func (t *MySpout) Close() {
-    usedTs := time.Now().Unix() - t.ts
+	usedTs := time.Now().Unix() - t.ts
 
 	log.Printf("MySpout,index:%d,sum:%d,usedTs:%d, %d/s\n", t.Index, t.sum, usedTs, t.sum/usedTs)
 }

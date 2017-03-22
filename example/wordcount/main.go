@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/l0vest0rm/gostream"
 	"net/http"
 	_ "net/http/pprof"
 	"runtime"
+
+	"github.com/l0vest0rm/gostream"
 )
 
 func main() {
