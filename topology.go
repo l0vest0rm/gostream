@@ -51,6 +51,7 @@ type groupInfo struct {
 	sndID        string //sender component id
 	streamID     string //sender streamId
 	groupingType int
+	isLocal      bool //wether inner process grouping
 }
 
 // TopologyBuilder topo struct
@@ -61,6 +62,8 @@ type TopologyBuilder struct {
 	bolts         map[string]*Bolt
 	commons       map[string]*ComponentCommon
 	pendGroupings []*groupInfo
+	peers         []string //peers address to connect
+	myAddr        string   //my addr for listen
 }
 
 type IOutputCollector interface {
@@ -140,46 +143,69 @@ func (t *ComponentCommon) closeDownstream() {
 	}
 }
 
-func (t *Bolt) grouping(componentId string, streamId string, groupingType int) {
-	if t.cc.tb.commons[componentId].streams == nil {
-		t.cc.tb.commons[componentId].streams = make(map[string]*StreamInfo)
-	}
-
-	streamInfo, ok := t.cc.tb.commons[componentId].streams[streamId]
-	if !ok {
-		streamInfo = &StreamInfo{}
-		streamInfo.groupingType = groupingType
-		streamInfo.tasks = make([]*TaskInfo, 0, t.cc.parallelism)
-		t.cc.tb.commons[componentId].streams[streamId] = streamInfo
-	}
-
-	for i := 0; i < t.cc.parallelism; i++ {
-		t.cc.tasks[i].dependentCnt += t.cc.tb.commons[componentId].parallelism
-		streamInfo.tasks = append(streamInfo.tasks, t.cc.tasks[i])
+// ShuffleGrouping grouping messages random
+func (t *Bolt) ShuffleGrouping(componentID string, streamID string) {
+	if t.cc.tb.peers == nil {
+		t.cc.tb.pendGrouping(t.cc.id, componentID, streamID, GROUPING_SHUFFLE, true)
+	} else {
+		t.cc.tb.pendGrouping(t.cc.id, componentID, streamID, GROUPING_SHUFFLE, false)
 	}
 }
 
-func (t *Bolt) ShuffleGrouping(componentId string, streamId string) {
-	t.pendGrouping(componentId, streamId, GROUPING_SHUFFLE)
+//KeyGrouping grouping messages by key
+func (t *Bolt) KeyGrouping(componentID string, streamID string) {
+	if t.cc.tb.peers == nil {
+		t.cc.tb.pendGrouping(t.cc.id, componentID, streamID, GROUPING_KEY, true)
+	} else {
+		t.cc.tb.pendGrouping(t.cc.id, componentID, streamID, GROUPING_KEY, false)
+	}
 }
 
-func (t *Bolt) KeyGrouping(componentId string, streamId string) {
-	t.pendGrouping(componentId, streamId, GROUPING_KEY)
+// ShuffleGroupingLocal grouping messages random local
+func (t *Bolt) ShuffleGroupingLocal(componentID string, streamID string) {
+	t.cc.tb.pendGrouping(t.cc.id, componentID, streamID, GROUPING_SHUFFLE, true)
 }
 
-func (t *Bolt) pendGrouping(componentID string, streamID string, groupingType int) {
+//KeyGroupingLocal grouping messages by key local
+func (t *Bolt) KeyGroupingLocal(componentID string, streamID string) {
+	t.cc.tb.pendGrouping(t.cc.id, componentID, streamID, GROUPING_KEY, true)
+}
+
+func (t *TopologyBuilder) pendGrouping(rcvID, sndID, streamID string, groupingType int, isLocal bool) {
 	gi := &groupInfo{}
-	gi.rcvID = t.cc.id
-	gi.sndID = componentID
+	gi.rcvID = rcvID
+	gi.sndID = sndID
 	gi.streamID = streamID
 	gi.groupingType = groupingType
-	t.cc.tb.pendGroupings = append(t.cc.tb.pendGroupings, gi)
+	gi.isLocal = isLocal
+	t.pendGroupings = append(t.pendGroupings, gi)
 }
 
+// NewTopologyBuilder new one
 func NewTopologyBuilder() *TopologyBuilder {
 	tb := &TopologyBuilder{}
 	tb.commons = make(map[string]*ComponentCommon)
 	tb.pendGroupings = make([]*groupInfo, 0)
+	return tb
+}
+
+// NewTopologyDistBuilder new one
+func NewTopologyDistBuilder(addrs []string, myIdx int) *TopologyBuilder {
+	tb := NewTopologyBuilder()
+	if addrs == nil || len(addrs) < 2 {
+		return tb
+	}
+
+	//distributed
+	tb.peers = make([]string, 0, len(addrs)-1)
+	for idx, addr := range addrs {
+		if idx == myIdx {
+			tb.myAddr = addr
+		} else {
+			tb.peers = append(tb.peers, addr)
+		}
+	}
+
 	return tb
 }
 
