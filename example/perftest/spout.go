@@ -35,12 +35,16 @@ type MySpout struct {
 	ts  int64
 }
 
-func (t MyMsg) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+func (t MyMsg) GetHashKey(srcPrallelism, srcIndex, dstPrallelism int) uint64 {
 	return uint64(t) % uint64(dstPrallelism)
 }
 
-func (t MyMsg) GetMsgType() int {
-	return 0
+func (t MyMsg) Marshal() ([]byte, error) {
+	return nil, nil
+}
+
+func (t MyMsg) Unmarshal(data []byte, v interface{}) error {
+	return nil
 }
 
 func NewMySpout() gostream.ISpout {

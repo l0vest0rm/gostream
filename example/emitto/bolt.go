@@ -42,7 +42,7 @@ func (t *MyBolt) NewInstance() gostream.IBolt {
 	return t1
 }
 
-func (t *MyBolt) Prepare(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
+func (t *MyBolt) Prepare(index uint, context gostream.TopologyContext, collector gostream.IOutputCollector) {
 	t.BaseBolt.Prepare(index, context, collector)
 	t.wordMap = make(map[string]int)
 }

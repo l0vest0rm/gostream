@@ -19,38 +19,41 @@
 package main
 
 import (
-    "log"
+	"log"
 
-    "github.com/l0vest0rm/gostream"
+	"github.com/l0vest0rm/gostream"
 )
 
 type MyBolt struct {
-    *gostream.BaseBolt
-    sum int64
+	*gostream.BaseBolt
+	sum int64
 }
 
 func NewMyBolt() gostream.IBolt {
-    t := &MyBolt{}
-    t.BaseBolt = gostream.NewBaseBolt()
-    return t
+	t := &MyBolt{}
+	t.BaseBolt = gostream.NewBaseBolt()
+	return t
 }
 
 func (t *MyBolt) NewInstance() gostream.IBolt {
-    t1 := &MyBolt{}
-    t1.BaseBolt = t.BaseBolt.Copy()
+	t1 := &MyBolt{}
+	t1.BaseBolt = t.BaseBolt.Copy()
 
-    return t1
+	return t1
 }
 
 func (t *MyBolt) Prepare(index int, context gostream.TopologyContext, collector gostream.IOutputCollector) {
-    t.BaseBolt.Prepare(index, context, collector)
+	t.BaseBolt.Prepare(index, context, collector)
 }
 
 func (t *MyBolt) Cleanup() {
-    log.Printf("Cleanup,boltid:%s,index:%d,sum:%d\n", t.Context.GetThisComponentId(), t.Index, t.sum)
+	log.Printf("Cleanup,boltid:%s,index:%d,sum:%d\n", t.Context.GetThisComponentID(), t.Index, t.sum)
 }
 
 func (t *MyBolt) Execute(message gostream.Message) {
-    _ = message.(MyMsg)
-    t.sum += 1
+	t.sum += 1
+}
+
+func (t *MyBolt) ExecuteB(message []byte) {
+	t.sum += 1
 }

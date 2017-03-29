@@ -19,8 +19,8 @@ func main() {
 	}()
 
 	builder := gostream.NewTopologyBuilder()
-	builder.SetSpout("randomWords1", NewSpout(), 2)
-	bolt := builder.SetBolt("wordcount", NewBolt(), 4, 1000)
+	builder.SetSpout("randomWords1", NewSpout(), uint(2)
+	bolt := builder.SetBolt("wordcount", NewBolt(), uint(4), 1000)
 	bolt.KeyGrouping("randomWords1", "word")
 	builder.Run()
 }

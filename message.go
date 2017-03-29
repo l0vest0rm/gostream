@@ -1,27 +1,92 @@
 package gostream
 
 import (
-	"github.com/spaolacci/murmur3"
+	"encoding/binary"
+	"fmt"
+	"io"
 )
 
+const (
+	msgMinLen        = 4
+	msgTypeHeartBeat = 1
+	msgTypeEOF       = 2
+	msgTypeConnect   = 3
+	msgTypeData      = 4
+)
+
+// Message comunication inferface
 type Message interface {
-    //@srcIndex index of the component
-    //return [0, dstPrallelism)
+	//@srcIndex index of the component
+	//return [0, dstPrallelism)
 	GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64
-	GetMsgType() int //获取消息类型,可以不同类型传输，然后下游根据类型区分
+	Marshal() ([]byte, error)
+	Unmarshal(data []byte, v interface{}) error
 }
 
-func convertKey(key interface{}) uint64 {
-	switch key.(type) {
-	case string:
-		return murmur3.Sum64([]byte(key.(string)))
-	case []byte:
-		return murmur3.Sum64(key.([]byte))
-	case uint64:
-		return key.(uint64)
-    case int64:
-        return uint64(key.(int64))
-	default:
-		panic("wrong key type")
+// SocketMessage comunication msg struct
+type SocketMessage struct {
+	msgType        int
+	sndProcessID   int //sender's processID
+	rcvComponentID int //receiver's componentID
+	rcvIdx         int //receiver's index with the componentID
+	data           []byte
+}
+
+// ReadPeerMessage reads out the message
+func ReadPeerMessage(reader io.Reader) (m []byte, err error) {
+	var length int32
+	err = binary.Read(reader, binary.LittleEndian, &length)
+	if err == io.EOF {
+		return nil, io.EOF
 	}
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read message length: %v", err)
+	}
+	if length < msgMinLen {
+		return nil, fmt.Errorf("Failed to read message length=%d", length)
+	}
+	m = make([]byte, length)
+	n, err := io.ReadFull(reader, m)
+	if err == io.EOF {
+		return nil, fmt.Errorf("Unexpected EOF when reading message size %d, but actual only %d", length, n)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read message content size %d, but read only %d: %v", length, n, err)
+	}
+
+	return
+}
+
+// ReadSocketMessage reads out the message
+func ReadSocketMessage2(reader io.Reader) (*SocketMessage, error) {
+	var length int32
+	err := binary.Read(reader, binary.LittleEndian, &length)
+	if err == io.EOF {
+		return nil, io.EOF
+	}
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read message length: %v", err)
+	}
+	if length < msgMinLen {
+		return nil, fmt.Errorf("Failed to read message length=%d", length)
+	}
+	m := make([]byte, length)
+	n, err := io.ReadFull(reader, m)
+	if err == io.EOF {
+		return nil, fmt.Errorf("Unexpected EOF when reading message size %d, but actual only %d", length, n)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read message content size %d, but read only %d: %v", length, n, err)
+	}
+
+	sm := &SocketMessage{}
+	sm.msgType = int(binary.LittleEndian.Uint32(m))
+	sm.sndProcessID = int(binary.LittleEndian.Uint32(m[4:]))
+	sm.rcvComponentID = int(binary.LittleEndian.Uint32(m[8:]))
+	sm.rcvIdx = int(binary.LittleEndian.Uint32(m[12:]))
+	if length > msgMinLen {
+		sm.data = m[16:]
+	}
+
+	return sm, nil
 }

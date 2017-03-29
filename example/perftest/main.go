@@ -19,14 +19,20 @@
 package main
 
 import (
-    "github.com/l0vest0rm/gostream"
+	"github.com/l0vest0rm/gostream"
+)
+
+const (
+	componentIDMySpout = 1
+	componentIDMyBolt  = 2
+	streamIDDefault    = 1
 )
 
 func main() {
 
-    builder := gostream.NewTopologyBuilder()
-    builder.SetSpout("NewMySpout", NewMySpout(), 4)
-    bolt := builder.SetBolt("NewMyBolt", NewMyBolt(), 4, 1000)
-    bolt.KeyGrouping("NewMySpout", "")
-    builder.Run()
+	builder := gostream.NewTopologyBuilder()
+	builder.SetSpout(componentIDMySpout, NewMySpout(), 4)
+	bolt := builder.SetBolt(componentIDMyBolt, NewMyBolt(), 4, 1000)
+	bolt.KeyGrouping(componentIDMySpout, streamIDDefault)
+	builder.Run()
 }

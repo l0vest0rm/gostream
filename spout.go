@@ -41,7 +41,7 @@ func (t *BaseSpout) Close() {
 	log.Printf("BaseSpout Close,%d", t.Index)
 }
 
-func (t *TopologyBuilder) goSpout(wg *sync.WaitGroup, stop chan bool, id string, index int) {
+func (t *TopologyBuilder) goSpout(wg *sync.WaitGroup, stop chan bool, id, index int) {
 	defer wg.Done()
 
 	log.Printf("goSpout,%s,%d start\n", id, index)
@@ -75,8 +75,8 @@ loop:
 	ispout.Close()
 	cc.closeDownstream()
 	if t.statInterval > 0 {
-		log.Printf("goSpout,%s,%d stopped, speed %d/s", id, index, counter/t.statInterval)
+		log.Printf("goSpout,%d,%d stopped, speed %d/s", id, index, counter/t.statInterval)
 	} else {
-		log.Printf("goSpout,%s,%d stopped", id, index)
+		log.Printf("goSpout,%d,%d stopped", id, index)
 	}
 }

@@ -10,6 +10,7 @@ type IBolt interface {
 	NewInstance() IBolt
 	Prepare(index int, context TopologyContext, collector IOutputCollector)
 	Execute(message Message)
+	ExecuteB(message []byte)
 	Cleanup()
 }
 
@@ -44,7 +45,7 @@ func (t *BaseBolt) Cleanup() {
 func (t *BaseBolt) Execute(message Message) {
 }
 
-func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id string, index int) {
+func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id, index int) {
 	defer wg.Done()
 	log.Printf("goBolt,%s,%d start\n", id, index)
 	cc := t.commons[id]
@@ -80,8 +81,8 @@ loop:
 	ibolt.Cleanup()
 	cc.closeDownstream()
 	if t.statInterval > 0 {
-		log.Printf("goBolt,%s,%d stopped, speed %d/s", id, index, counter/t.statInterval)
+		log.Printf("goBolt,%d,%d stopped, speed %d/s", id, index, counter/t.statInterval)
 	} else {
-		log.Printf("goBolt,%s,%d stopped", id, index)
+		log.Printf("goBolt,%d,%d stopped", id, index)
 	}
 }

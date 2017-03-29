@@ -22,7 +22,7 @@ import (
 	"math/rand"
 
 	"github.com/l0vest0rm/gostream"
-    "github.com/spaolacci/murmur3"
+	"github.com/spaolacci/murmur3"
 )
 
 type WordMsg struct {
@@ -34,8 +34,8 @@ type MySpout struct {
 	stop chan bool
 }
 
-func (t *WordMsg) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
-    return murmur3.Sum64([]byte(t.Key))
+func (t *WordMsg) GetHashKey(srcPrallelism uint, srcIndex uint, dstPrallelism uint) uint64 {
+	return murmur3.Sum64([]byte(t.Key))
 }
 
 func (t *WordMsg) GetMsgType() int {
