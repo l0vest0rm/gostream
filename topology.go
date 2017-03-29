@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
-	"net/rpc"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	"git.apache.org/thrift.git/lib/go/thrift"
+	"github.com/l0vest0rm/gostream/rpc"
 )
 
 const (
@@ -70,8 +71,7 @@ type GroupInfo struct {
 type distInfo struct {
 	mu     sync.RWMutex
 	addr   string // addr
-	client *rpc.Client
-	done   chan *rpc.Call
+	client *rpc.ServiceClient
 }
 
 // TopologyBuilder topo struct
@@ -94,38 +94,6 @@ type IOutputCollector interface {
 
 type TopologyContext interface {
 	GetThisComponentID() int
-}
-
-type RpcMessage struct {
-	tb *TopologyBuilder
-}
-
-//EmptyParam rpc message
-type EmptyParam struct{}
-
-//GroupingRsp rpc message
-type GroupingRsp struct {
-	Parallelism int // Parallelism
-}
-
-//ReadyRsp rpc message
-type ReadyRsp struct {
-	Ready bool // ready
-}
-
-//DataRequest rpc message
-type DataRequest struct {
-	RcvID  int    //receiver component id
-	RcvIdx int    // receiver component's index
-	Data   []byte // data bytes
-}
-
-func (t *DataRequest) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
-	return uint64(0)
-}
-
-func (t *DataRequest) Marshal() ([]byte, error) {
-	return t.Data, nil
 }
 
 func (t *TaskInfo) GetThisComponentID() int {
@@ -196,21 +164,10 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 		return
 	}
 
-	dataR := &DataRequest{}
-	dataR.RcvID = tg.componentID
-	dataR.RcvIdx = tg.index
-	dataR.Data = b
-	var param EmptyParam
-	t.dist[tg.peerIdx].client.Go("RpcMessage.RpcDataProc", dataR, &param, t.dist[tg.peerIdx].done)
-	/*err = t.dist[tg.peerIdx].client.Call("RpcMessage.RpcDataProc", dataR, &param)
-	if err != nil {
-		panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
-	}*/
-}
-
-func (t *RpcMessage) RpcDataProc(dataR *DataRequest, reply *EmptyParam) error {
-	t.tb.commons[dataR.RcvID].tasks[dataR.RcvIdx].messages <- dataR
-	return nil
+	dataR := &rpc.DataRequest{RcvID: int32(tg.componentID),
+		RcvIdx: int32(tg.index),
+		Data:   b}
+	t.dist[tg.peerIdx].client.SendData(dataR)
 }
 
 //关闭下游
@@ -290,7 +247,7 @@ func NewTopologyDistBuilder(addrs []string, myIdx int) *TopologyBuilder {
 	tb.myIdx = myIdx
 	tb.dist = make([]*distInfo, 0, len(addrs))
 	for i := 0; i < len(addrs); i++ {
-		di := &distInfo{addr: addrs[i], done: make(chan *rpc.Call, 100)}
+		di := &distInfo{addr: addrs[i]}
 		tb.dist = append(tb.dist, di)
 	}
 
@@ -402,8 +359,12 @@ func (t *TopologyBuilder) grouping(gi *GroupInfo) {
 func (t *TopologyBuilder) groupingRemote(gi *GroupInfo) {
 	log.Println("groupingRemote")
 	var err error
-	var reply GroupingRsp
-	log.Printf("groupingRemote,len(t.dist)=%d\n", len(t.dist))
+	var reply int32
+
+	req := &rpc.GroupingRequest{PeerIdx: int32(gi.PeerIdx),
+		RcvID:          int32(gi.RcvID),
+		RcvParallelism: int32(gi.RcvParallelism),
+		SndID:          int32(gi.SndID)}
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
 		for {
@@ -412,13 +373,13 @@ func (t *TopologyBuilder) groupingRemote(gi *GroupInfo) {
 			}
 
 			t.dist[i].mu.Lock()
-			err = t.dist[i].client.Call("RpcMessage.RpcGrouping", gi, &reply)
+			reply, err = t.dist[i].client.Grouping(req)
 			t.dist[i].mu.Unlock()
 			if err != nil {
 				panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
 			}
 			for i := 0; i < t.commons[gi.RcvID].parallelism; i++ {
-				t.commons[gi.RcvID].tasks[i].dependentCnt += reply.Parallelism
+				t.commons[gi.RcvID].tasks[i].dependentCnt += int(reply)
 			}
 			log.Printf("groupingRemote,success,gi:%v", gi)
 			break
@@ -450,68 +411,18 @@ func (t *TopologyBuilder) groupingLocal(gi *GroupInfo) {
 	}
 }
 
-func (t *RpcMessage) Hello(request *EmptyParam, reply *EmptyParam) error {
-	return nil
-}
-
-func (t *RpcMessage) Ready(request *EmptyParam, reply *ReadyRsp) error {
-	t.tb.mu.RLock()
-	reply.Ready = t.tb.ready
-	t.tb.mu.RUnlock()
-	return nil
-}
-
-func (t *RpcMessage) RpcGrouping(gi *GroupInfo, reply *GroupingRsp) error {
-	log.Printf("RpcGrouping,gi:%v\n", gi)
-	if t.tb.commons[gi.SndID].streams == nil {
-		t.tb.commons[gi.SndID].streams = make([]*StreamInfo, 0, gi.StreamID+1)
-	}
-
-	//extend the slice
-	for i := len(t.tb.commons[gi.SndID].streams); i < gi.StreamID+1; i++ {
-		si := &StreamInfo{}
-		si.targets = make([]*targetInfo, 0, gi.RcvParallelism)
-		t.tb.commons[gi.SndID].streams = append(t.tb.commons[gi.SndID].streams, si)
-	}
-
-	t.tb.commons[gi.SndID].streams[gi.StreamID].groupingType = gi.GroupingType
-	for i := 0; i < gi.RcvParallelism; i++ {
-		tg := &targetInfo{}
-		tg.peerIdx = gi.PeerIdx
-		tg.componentID = gi.RcvID
-		tg.index = i
-		t.tb.commons[gi.SndID].streams[gi.StreamID].targets = append(t.tb.commons[gi.SndID].streams[gi.StreamID].targets, tg)
-	}
-
-	reply.Parallelism = t.tb.commons[gi.SndID].parallelism
-	return nil
-}
-
 func (t *TopologyBuilder) dealPendGroupings() {
 	for _, gi := range t.pendGroupings {
 		t.grouping(gi)
 	}
 }
 
-func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool) {
+func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool, transportFactory thrift.TTransportFactory, protocolFactory thrift.TProtocolFactory) {
 	defer wg.Done()
 
 	if t.dist == nil {
 		return
 	}
-
-	//listen
-	ln, err := net.Listen("tcp", t.dist[t.myIdx].addr)
-	if err != nil {
-		// handle error
-		panic(err.Error())
-	}
-
-	//rpc server
-	rpcServer := rpc.NewServer()
-	rm := &RpcMessage{tb: t}
-	rpcServer.Register(rm)
-	log.Printf("goStartServer,rpc.Register(rm)\n")
 
 	//connect peers
 	for i := 0; i < len(t.dist); i++ {
@@ -520,33 +431,32 @@ func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool) {
 		}
 
 		wg.Add(1)
-		go t.connectPeer(wg, stop, i)
+		go t.connectPeer(wg, stop, i, transportFactory, protocolFactory)
 	}
 
-	//wait for connecttion
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			// handle error
-			log.Printf("accept err:%s\n", err.Error())
-			continue
-		}
-		//wg.Add(1)
-		//go t.handleConnection(wg, stop, conn)
-		go rpcServer.ServeConn(conn)
+	//var transport thrift.TServerTransport
+	transport, err := thrift.NewTServerSocket(t.dist[t.myIdx].addr)
+	if err != nil {
+		panic(fmt.Sprintf("NewTServerSocket,err:%s\n", err.Error()))
 	}
+	handler := NewServiceHandler(t)
+	processor := rpc.NewServiceProcessor(handler)
+	server := thrift.NewTSimpleServer4(processor, transport, transportFactory, protocolFactory)
+	log.Println("Starting the simple server... on ", t.dist[t.myIdx].addr)
+	server.Serve()
 }
 
 // connectPeer connect other peer
-func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerIdx int) {
+func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerIdx int, transportFactory thrift.TTransportFactory, protocolFactory thrift.TProtocolFactory) {
 	defer wg.Done()
 
+	var transport thrift.TTransport
 	log.Printf("connectPeer,peerIdx:%d\n", peerIdx)
-	var conn net.Conn
 	var err error
 	for {
-		conn, err = net.Dial("tcp", t.dist[peerIdx].addr)
-		if err == nil {
+		transport, err = thrift.NewTSocket(t.dist[peerIdx].addr)
+		transport = transportFactory.GetTransport(transport)
+		if err := transport.Open(); err == nil {
 			// ok
 			break
 		}
@@ -554,7 +464,7 @@ func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerId
 		time.Sleep(time.Second)
 	}
 
-	client := rpc.NewClient(conn)
+	client := rpc.NewServiceClientFactory(transport, protocolFactory)
 	if client == nil {
 		//handle error
 		log.Printf("connectPeer,addr:%s,NewClient,err:%s\n", t.dist[peerIdx].addr, err.Error())
@@ -576,8 +486,7 @@ func (t *TopologyBuilder) distSync() {
 
 	//check peers's ready or not
 	var err error
-	var param EmptyParam
-	var ready ReadyRsp
+	var ready bool
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
 		for {
@@ -587,15 +496,15 @@ func (t *TopologyBuilder) distSync() {
 
 			//Ready
 			t.dist[i].mu.Lock()
-			err = t.dist[i].client.Call("RpcMessage.Ready", &param, &ready)
+			ready, err = t.dist[i].client.IsReady()
 			t.dist[i].mu.Unlock()
 			if err != nil {
-				log.Printf("groupingRemote,Call Hello,err:%s\n", err.Error())
+				log.Printf("distSync,Call IsReady,err:%s\n", err.Error())
 				time.Sleep(time.Second)
 				continue
 			}
 
-			if ready.Ready {
+			if ready {
 				break
 			}
 		}
@@ -603,10 +512,9 @@ func (t *TopologyBuilder) distSync() {
 
 }
 
-//distributed peers hello,check the connection is ok
-func (t *TopologyBuilder) peersHello() {
+//distributed peers ping,check the connection is ok
+func (t *TopologyBuilder) peersPing() {
 	var err error
-	var param EmptyParam
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
 		for {
@@ -621,11 +529,11 @@ func (t *TopologyBuilder) peersHello() {
 				continue
 			}
 
-			//Hello
-			err = t.dist[i].client.Call("RpcMessage.Hello", &param, &param)
+			//Ping
+			err = t.dist[i].client.Ping()
 			t.dist[i].mu.Unlock()
 			if err != nil {
-				log.Printf("groupingRemote,Call Hello,err:%s\n", err.Error())
+				log.Printf("peersPing,Ping,err:%s\n", err.Error())
 				time.Sleep(time.Second)
 				continue
 			}
@@ -639,8 +547,10 @@ func (t *TopologyBuilder) Run() {
 	var wg sync.WaitGroup
 	stop := make(chan bool)
 
-	go t.goStartServer(&wg, stop)
-	t.peersHello()
+	transportFactory := thrift.NewTBufferedTransportFactory(8192)
+	protocolFactory := thrift.NewTBinaryProtocolFactoryDefault()
+	go t.goStartServer(&wg, stop, transportFactory, protocolFactory)
+	t.peersPing()
 	t.dealPendGroupings()
 	t.distSync()
 	t.startSpouts(&wg, stop)
