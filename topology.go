@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const (
@@ -70,6 +71,7 @@ type distInfo struct {
 	mu     sync.RWMutex
 	addr   string // addr
 	client *rpc.Client
+	done   chan *rpc.Call
 }
 
 // TopologyBuilder topo struct
@@ -82,6 +84,7 @@ type TopologyBuilder struct {
 	pendGroupings []*GroupInfo
 	dist          []*distInfo //all distributed peers
 	myIdx         int         //my addr idx
+	ready         bool        //ready for receiving messages
 }
 
 type IOutputCollector interface {
@@ -91,6 +94,38 @@ type IOutputCollector interface {
 
 type TopologyContext interface {
 	GetThisComponentID() int
+}
+
+type RpcMessage struct {
+	tb *TopologyBuilder
+}
+
+//EmptyParam rpc message
+type EmptyParam struct{}
+
+//GroupingRsp rpc message
+type GroupingRsp struct {
+	Parallelism int // Parallelism
+}
+
+//ReadyRsp rpc message
+type ReadyRsp struct {
+	Ready bool // ready
+}
+
+//DataRequest rpc message
+type DataRequest struct {
+	RcvID  int    //receiver component id
+	RcvIdx int    // receiver component's index
+	Data   []byte // data bytes
+}
+
+func (t *DataRequest) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+	return uint64(0)
+}
+
+func (t *DataRequest) Marshal() ([]byte, error) {
+	return t.Data, nil
 }
 
 func (t *TaskInfo) GetThisComponentID() int {
@@ -151,7 +186,31 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 	if t.myIdx == tg.peerIdx {
 		//local Emit
 		t.commons[tg.componentID].tasks[tg.index].messages <- message
+		return
 	}
+
+	//remote
+	b, err := message.Marshal()
+	if err != nil {
+		log.Printf("EmitMessage,message.Marshal,err:%s\n", err.Error())
+		return
+	}
+
+	dataR := &DataRequest{}
+	dataR.RcvID = tg.componentID
+	dataR.RcvIdx = tg.index
+	dataR.Data = b
+	var param EmptyParam
+	t.dist[tg.peerIdx].client.Go("RpcMessage.RpcDataProc", dataR, &param, t.dist[tg.peerIdx].done)
+	/*err = t.dist[tg.peerIdx].client.Call("RpcMessage.RpcDataProc", dataR, &param)
+	if err != nil {
+		panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
+	}*/
+}
+
+func (t *RpcMessage) RpcDataProc(dataR *DataRequest, reply *EmptyParam) error {
+	t.tb.commons[dataR.RcvID].tasks[dataR.RcvIdx].messages <- dataR
+	return nil
 }
 
 //关闭下游
@@ -231,7 +290,7 @@ func NewTopologyDistBuilder(addrs []string, myIdx int) *TopologyBuilder {
 	tb.myIdx = myIdx
 	tb.dist = make([]*distInfo, 0, len(addrs))
 	for i := 0; i < len(addrs); i++ {
-		di := &distInfo{addr: addrs[i]}
+		di := &distInfo{addr: addrs[i], done: make(chan *rpc.Call, 100)}
 		tb.dist = append(tb.dist, di)
 	}
 
@@ -333,30 +392,42 @@ func (t *TopologyBuilder) startBolts(wg *sync.WaitGroup) {
 }
 
 func (t *TopologyBuilder) grouping(gi *GroupInfo) {
-	if gi.isLocal {
-		t.groupingLocal(gi)
-	} else {
+	log.Println("grouping")
+	t.groupingLocal(gi)
+	if !gi.isLocal {
 		t.groupingRemote(gi)
 	}
 }
 
 func (t *TopologyBuilder) groupingRemote(gi *GroupInfo) {
+	log.Println("groupingRemote")
 	var err error
-	var reply int
+	var reply GroupingRsp
+	log.Printf("groupingRemote,len(t.dist)=%d\n", len(t.dist))
 	for i := 0; i < len(t.dist); i++ {
-		t.dist[i].mu.Lock()
-		err = t.dist[i].client.Call("TopologyBuilder.RpcGrouping", gi, &reply)
-		if err != nil {
-			panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
-		}
-		for i := 0; i < t.commons[gi.RcvID].parallelism; i++ {
-			t.commons[gi.RcvID].tasks[i].dependentCnt += reply
+		//loop for client connected
+		for {
+			if i == t.myIdx {
+				break
+			}
+
+			t.dist[i].mu.Lock()
+			err = t.dist[i].client.Call("RpcMessage.RpcGrouping", gi, &reply)
+			t.dist[i].mu.Unlock()
+			if err != nil {
+				panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
+			}
+			for i := 0; i < t.commons[gi.RcvID].parallelism; i++ {
+				t.commons[gi.RcvID].tasks[i].dependentCnt += reply.Parallelism
+			}
+			log.Printf("groupingRemote,success,gi:%v", gi)
+			break
 		}
 	}
-
 }
 
 func (t *TopologyBuilder) groupingLocal(gi *GroupInfo) {
+	log.Println("groupingLocal")
 	if t.commons[gi.SndID].streams == nil {
 		t.commons[gi.SndID].streams = make([]*StreamInfo, 0, gi.StreamID+1)
 	}
@@ -379,28 +450,41 @@ func (t *TopologyBuilder) groupingLocal(gi *GroupInfo) {
 	}
 }
 
-func (t *TopologyBuilder) RpcGrouping(gi *GroupInfo, reply *int) {
-	if t.commons[gi.SndID].streams == nil {
-		t.commons[gi.SndID].streams = make([]*StreamInfo, 0, gi.StreamID+1)
+func (t *RpcMessage) Hello(request *EmptyParam, reply *EmptyParam) error {
+	return nil
+}
+
+func (t *RpcMessage) Ready(request *EmptyParam, reply *ReadyRsp) error {
+	t.tb.mu.RLock()
+	reply.Ready = t.tb.ready
+	t.tb.mu.RUnlock()
+	return nil
+}
+
+func (t *RpcMessage) RpcGrouping(gi *GroupInfo, reply *GroupingRsp) error {
+	log.Printf("RpcGrouping,gi:%v\n", gi)
+	if t.tb.commons[gi.SndID].streams == nil {
+		t.tb.commons[gi.SndID].streams = make([]*StreamInfo, 0, gi.StreamID+1)
 	}
 
 	//extend the slice
-	for i := len(t.commons[gi.SndID].streams); i < gi.StreamID+1; i++ {
+	for i := len(t.tb.commons[gi.SndID].streams); i < gi.StreamID+1; i++ {
 		si := &StreamInfo{}
 		si.targets = make([]*targetInfo, 0, gi.RcvParallelism)
-		t.commons[gi.SndID].streams = append(t.commons[gi.SndID].streams, si)
+		t.tb.commons[gi.SndID].streams = append(t.tb.commons[gi.SndID].streams, si)
 	}
 
-	t.commons[gi.SndID].streams[gi.StreamID].groupingType = gi.GroupingType
+	t.tb.commons[gi.SndID].streams[gi.StreamID].groupingType = gi.GroupingType
 	for i := 0; i < gi.RcvParallelism; i++ {
 		tg := &targetInfo{}
 		tg.peerIdx = gi.PeerIdx
 		tg.componentID = gi.RcvID
 		tg.index = i
-		t.commons[gi.SndID].streams[gi.StreamID].targets = append(t.commons[gi.SndID].streams[gi.StreamID].targets, tg)
+		t.tb.commons[gi.SndID].streams[gi.StreamID].targets = append(t.tb.commons[gi.SndID].streams[gi.StreamID].targets, tg)
 	}
 
-	*reply = t.commons[gi.SndID].parallelism
+	reply.Parallelism = t.tb.commons[gi.SndID].parallelism
+	return nil
 }
 
 func (t *TopologyBuilder) dealPendGroupings() {
@@ -409,7 +493,9 @@ func (t *TopologyBuilder) dealPendGroupings() {
 	}
 }
 
-func (t *TopologyBuilder) startServer(wg *sync.WaitGroup, stop chan bool) {
+func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool) {
+	defer wg.Done()
+
 	if t.dist == nil {
 		return
 	}
@@ -421,6 +507,12 @@ func (t *TopologyBuilder) startServer(wg *sync.WaitGroup, stop chan bool) {
 		panic(err.Error())
 	}
 
+	//rpc server
+	rpcServer := rpc.NewServer()
+	rm := &RpcMessage{tb: t}
+	rpcServer.Register(rm)
+	log.Printf("goStartServer,rpc.Register(rm)\n")
+
 	//connect peers
 	for i := 0; i < len(t.dist); i++ {
 		if i == t.myIdx {
@@ -430,10 +522,6 @@ func (t *TopologyBuilder) startServer(wg *sync.WaitGroup, stop chan bool) {
 		wg.Add(1)
 		go t.connectPeer(wg, stop, i)
 	}
-
-	//rpc server
-	rpcServer := rpc.NewServer()
-	rpc.Register(t)
 
 	//wait for connecttion
 	for {
@@ -452,14 +540,24 @@ func (t *TopologyBuilder) startServer(wg *sync.WaitGroup, stop chan bool) {
 // connectPeer connect other peer
 func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerIdx int) {
 	defer wg.Done()
-	conn, err := net.Dial("tcp", t.dist[peerIdx].addr)
-	if err != nil {
-		// handle error
+
+	log.Printf("connectPeer,peerIdx:%d\n", peerIdx)
+	var conn net.Conn
+	var err error
+	for {
+		conn, err = net.Dial("tcp", t.dist[peerIdx].addr)
+		if err == nil {
+			// ok
+			break
+		}
+		log.Printf("connectPeer,addr:%s,err:%s\n", t.dist[peerIdx].addr, err.Error())
+		time.Sleep(time.Second)
 	}
 
 	client := rpc.NewClient(conn)
 	if client == nil {
 		//handle error
+		log.Printf("connectPeer,addr:%s,NewClient,err:%s\n", t.dist[peerIdx].addr, err.Error())
 	}
 
 	t.dist[peerIdx].mu.Lock()
@@ -467,13 +565,84 @@ func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerId
 	t.dist[peerIdx].mu.Unlock()
 }
 
+//distributed peers sync
+func (t *TopologyBuilder) distSync() {
+	t.mu.Lock()
+	t.ready = true
+	t.mu.Unlock()
+	if t.dist == nil {
+		return
+	}
+
+	//check peers's ready or not
+	var err error
+	var param EmptyParam
+	var ready ReadyRsp
+	for i := 0; i < len(t.dist); i++ {
+		//loop for client connected
+		for {
+			if i == t.myIdx {
+				break
+			}
+
+			//Ready
+			t.dist[i].mu.Lock()
+			err = t.dist[i].client.Call("RpcMessage.Ready", &param, &ready)
+			t.dist[i].mu.Unlock()
+			if err != nil {
+				log.Printf("groupingRemote,Call Hello,err:%s\n", err.Error())
+				time.Sleep(time.Second)
+				continue
+			}
+
+			if ready.Ready {
+				break
+			}
+		}
+	}
+
+}
+
+//distributed peers hello,check the connection is ok
+func (t *TopologyBuilder) peersHello() {
+	var err error
+	var param EmptyParam
+	for i := 0; i < len(t.dist); i++ {
+		//loop for client connected
+		for {
+			if i == t.myIdx {
+				break
+			}
+			t.dist[i].mu.Lock()
+			if t.dist[i].client == nil {
+				//wait
+				t.dist[i].mu.Unlock()
+				time.Sleep(time.Second)
+				continue
+			}
+
+			//Hello
+			err = t.dist[i].client.Call("RpcMessage.Hello", &param, &param)
+			t.dist[i].mu.Unlock()
+			if err != nil {
+				log.Printf("groupingRemote,Call Hello,err:%s\n", err.Error())
+				time.Sleep(time.Second)
+				continue
+			}
+			break
+		}
+	}
+}
+
 // Run TopologyBuilder
 func (t *TopologyBuilder) Run() {
 	var wg sync.WaitGroup
 	stop := make(chan bool)
 
-	t.startServer(&wg, stop)
+	go t.goStartServer(&wg, stop)
+	t.peersHello()
 	t.dealPendGroupings()
+	t.distSync()
 	t.startSpouts(&wg, stop)
 	t.startBolts(&wg)
 

@@ -20,7 +20,6 @@ type Message interface {
 	//return [0, dstPrallelism)
 	GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64
 	Marshal() ([]byte, error)
-	Unmarshal(data []byte, v interface{}) error
 }
 
 // SocketMessage comunication msg struct
