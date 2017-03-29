@@ -25,7 +25,7 @@ import (
 const (
 	componentIDMySpout = 1
 	componentIDMyBolt  = 2
-	streamIDDefault    = 1
+	streamIDDefault    = 0
 )
 
 func main() {

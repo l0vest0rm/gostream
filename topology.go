@@ -57,7 +57,7 @@ type ComponentCommon struct {
 }
 
 type GroupInfo struct {
-	peerIdx        int //my index
+	PeerIdx        int //my index
 	RcvID          int //receiver component id
 	RcvParallelism int // receiver component's parallelism
 	SndID          int //sender component id
@@ -156,17 +156,20 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 
 //关闭下游
 func (t *ComponentCommon) closeDownstream() {
-	//for _, streamInfo := range t.streams {
-	//	for _, taskInfo := range streamInfo.targets {
-	//	t.tb.mu.Lock()
-	//taskInfo.dependentCnt--
-	//if taskInfo.dependentCnt == 0 {
-	//log.Printf("close channel,componentID:%s,taskid:%d\n", taskInfo.componentID, taskInfo.taskid)
-	//	close(taskInfo.messages)
-	//}
-	//	t.tb.mu.Unlock()
-	//}
-	//}
+	for _, streamInfo := range t.streams {
+		for _, tg := range streamInfo.targets {
+			if tg.peerIdx == t.tb.myIdx {
+				//local
+				t.tb.mu.Lock()
+				t.tb.commons[tg.componentID].tasks[tg.index].dependentCnt--
+				if t.tb.commons[tg.componentID].tasks[tg.index].dependentCnt == 0 {
+					log.Printf("close channel,componentID:%d,taskid:%d\n", tg.componentID, tg.index)
+					close(t.tb.commons[tg.componentID].tasks[tg.index].messages)
+				}
+				t.tb.mu.Unlock()
+			}
+		}
+	}
 }
 
 // ShuffleGrouping grouping messages random
@@ -205,9 +208,7 @@ func (t *TopologyBuilder) pendGrouping(rcvID, rcvParallelism, sndID, streamID in
 	gi.StreamID = streamID
 	gi.GroupingType = groupingType
 	gi.isLocal = isLocal
-	if !isLocal {
-		gi.peerIdx = t.myIdx
-	}
+	gi.PeerIdx = t.myIdx
 	t.pendGroupings = append(t.pendGroupings, gi)
 }
 
@@ -348,11 +349,14 @@ func (t *TopologyBuilder) groupingRemote(gi *GroupInfo) {
 		if err != nil {
 			panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
 		}
+		for i := 0; i < t.commons[gi.RcvID].parallelism; i++ {
+			t.commons[gi.RcvID].tasks[i].dependentCnt += reply
+		}
 	}
+
 }
 
 func (t *TopologyBuilder) groupingLocal(gi *GroupInfo) {
-	log.Printf("groupingLocal,gi:%v\n", gi)
 	if t.commons[gi.SndID].streams == nil {
 		t.commons[gi.SndID].streams = make([]*StreamInfo, 0, gi.StreamID+1)
 	}
@@ -367,15 +371,36 @@ func (t *TopologyBuilder) groupingLocal(gi *GroupInfo) {
 	t.commons[gi.SndID].streams[gi.StreamID].groupingType = gi.GroupingType
 	for i := 0; i < gi.RcvParallelism; i++ {
 		tg := &targetInfo{}
-		tg.peerIdx = t.myIdx
+		tg.peerIdx = gi.PeerIdx
+		tg.componentID = gi.RcvID
+		tg.index = i
+		t.commons[gi.SndID].streams[gi.StreamID].targets = append(t.commons[gi.SndID].streams[gi.StreamID].targets, tg)
+		t.commons[gi.RcvID].tasks[i].dependentCnt += t.commons[gi.SndID].parallelism
+	}
+}
+
+func (t *TopologyBuilder) RpcGrouping(gi *GroupInfo, reply *int) {
+	if t.commons[gi.SndID].streams == nil {
+		t.commons[gi.SndID].streams = make([]*StreamInfo, 0, gi.StreamID+1)
+	}
+
+	//extend the slice
+	for i := len(t.commons[gi.SndID].streams); i < gi.StreamID+1; i++ {
+		si := &StreamInfo{}
+		si.targets = make([]*targetInfo, 0, gi.RcvParallelism)
+		t.commons[gi.SndID].streams = append(t.commons[gi.SndID].streams, si)
+	}
+
+	t.commons[gi.SndID].streams[gi.StreamID].groupingType = gi.GroupingType
+	for i := 0; i < gi.RcvParallelism; i++ {
+		tg := &targetInfo{}
+		tg.peerIdx = gi.PeerIdx
 		tg.componentID = gi.RcvID
 		tg.index = i
 		t.commons[gi.SndID].streams[gi.StreamID].targets = append(t.commons[gi.SndID].streams[gi.StreamID].targets, tg)
 	}
-}
 
-func (t *TopologyBuilder) RpcGrouping(args *GroupInfo, reply *int) {
-
+	*reply = t.commons[gi.SndID].parallelism
 }
 
 func (t *TopologyBuilder) dealPendGroupings() {

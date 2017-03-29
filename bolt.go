@@ -47,7 +47,7 @@ func (t *BaseBolt) Execute(message Message) {
 
 func (t *TopologyBuilder) goBolt(wg *sync.WaitGroup, id, index int) {
 	defer wg.Done()
-	log.Printf("goBolt,%s,%d start\n", id, index)
+	log.Printf("goBolt,%d,%d start\n", id, index)
 	cc := t.commons[id]
 	ibolt := t.bolts[id].ibolt.NewInstance()
 
@@ -64,13 +64,13 @@ loop:
 		message, more = <-cc.tasks[index].messages
 		if !more {
 			//no more message
-			log.Printf("goBolt id:%s,%d receive stop signal", id, index)
+			log.Printf("goBolt id:%d,%d receive stop signal", id, index)
 			break loop
 		}
 
 		now := time.Now().Unix()
 		if t.statInterval > 0 && now > lastTs+t.statInterval {
-			log.Printf("goSpout id:%s,%d speed %d/s", id, index, counter/t.statInterval)
+			log.Printf("goSpout id:%d,%d speed %d/s", id, index, counter/t.statInterval)
 			lastTs = now
 			counter = 0
 		}

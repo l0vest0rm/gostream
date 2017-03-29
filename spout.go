@@ -44,7 +44,7 @@ func (t *BaseSpout) Close() {
 func (t *TopologyBuilder) goSpout(wg *sync.WaitGroup, stop chan bool, id, index int) {
 	defer wg.Done()
 
-	log.Printf("goSpout,%s,%d start\n", id, index)
+	log.Printf("goSpout,%d,%d start\n", id, index)
 	cc := t.commons[id]
 	ispout := t.spouts[id].ispout.NewInstance()
 
@@ -58,7 +58,7 @@ loop:
 	for {
 		select {
 		case <-stop:
-			log.Printf("goSpout id:%s,%d receive stop signal", id, index)
+			log.Printf("goSpout id:%d,%d receive stop signal", id, index)
 			break loop
 		default:
 			now := time.Now().Unix()
