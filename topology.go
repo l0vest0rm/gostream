@@ -497,24 +497,34 @@ func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerId
 
 	var distMessage *DistMessage
 	var dataR *service.DataReq
+	dataRs := &service.DataReqs{Drs: make([]*service.DataReq, 0, 100)}
 	var more bool
 	for {
-		distMessage, more = <-t.dist[peerIdx].messages
-		if !more {
-			//no more message
-			log.Printf("connectPeer addr:%s receive stop signal", addr)
-			break
-		}
+		select {
+		case distMessage, more = <-t.dist[peerIdx].messages:
+			if !more {
+				//no more message
+				log.Printf("connectPeer addr:%s receive stop signal", addr)
+				break
+			}
 
-		b, err := distMessage.message.Marshal()
-		if err != nil {
-			log.Printf("distMessage.message.Marshal(),err:%s\n", err.Error())
-			continue
+			b, err := distMessage.message.Marshal()
+			if err != nil {
+				log.Printf("distMessage.message.Marshal(),err:%s\n", err.Error())
+				continue
+			}
+			dataR = &service.DataReq{RcvID: distMessage.RcvID,
+				RcvIdx: distMessage.RcvIdx,
+				Data:   b}
+			dataRs.Drs = append(dataRs.Drs, dataR)
+		default:
+			if len(dataRs.Drs) == 0 {
+				time.Sleep(time.Nanosecond * 10)
+				continue
+			}
+			t.dist[peerIdx].stream.Send(dataRs)
+			dataRs.Drs = dataRs.Drs[:0]
 		}
-		dataR = &service.DataReq{RcvID: distMessage.RcvID,
-			RcvIdx: distMessage.RcvIdx,
-			Data:   b}
-		t.dist[peerIdx].stream.Send(dataR)
 	}
 }
 

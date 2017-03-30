@@ -51,17 +51,20 @@ func (t *IPCServiceHandler) Grouping(ctx context.Context, req *service.GroupingR
 
 func (t *IPCServiceHandler) SendData(stream service.IPCService_SendDataServer) error {
 	//t.tb.commons[int(req.RcvID)].tasks[int(req.RcvIdx)].messages <- req
-	var dataR *service.DataReq
+	var dataRs *service.DataReqs
 	var err error
 	for {
-		dataR, err = stream.Recv()
+		dataRs, err = stream.Recv()
 		if err == io.EOF {
 			return stream.SendAndClose(nil)
 		}
 		if err != nil {
 			return err
 		}
-		t.tb.commons[int(dataR.RcvID)].tasks[int(dataR.RcvIdx)].messages <- dataR
+
+		for _, dataR := range dataRs.Drs {
+			t.tb.commons[int(dataR.RcvID)].tasks[int(dataR.RcvIdx)].messages <- dataR
+		}
 	}
 
 	return nil
