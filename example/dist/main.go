@@ -19,6 +19,7 @@
 package main
 
 import (
+	"log"
 	"os"
 
 	"strconv"
@@ -35,14 +36,24 @@ const (
 )
 
 func main() {
+	if len(os.Args) < 3 {
+		log.Printf("usage: ./dist <index> <parallelism>")
+	}
+
 	myIdx, err := strconv.Atoi(os.Args[1])
 	if err != nil {
 		panic(fmt.Sprintf("wrong os.Args:%v", os.Args))
 	}
+
+	parallelism, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		panic(fmt.Sprintf("wrong os.Args:%v", os.Args))
+	}
+
 	addrs := []string{"127.0.0.1:9001", "127.0.0.1:9002"}
 	builder := gostream.NewTopologyDistBuilder(addrs, myIdx, 10000)
-	builder.SetSpout(componentIDMySpout, NewMySpout(), 4)
-	bolt := builder.SetBolt(componentIDMyBolt, NewMyBolt(), 4, 1000)
+	builder.SetSpout(componentIDMySpout, NewMySpout(), parallelism)
+	bolt := builder.SetBolt(componentIDMyBolt, NewMyBolt(), parallelism, 1000)
 	bolt.KeyGrouping(componentIDMySpout, streamIDDefault)
 	builder.Run()
 }
