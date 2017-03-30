@@ -75,7 +75,7 @@ type GroupInfo struct {
 type distInfo struct {
 	mu       sync.RWMutex
 	addr     string // addr
-	messages chan *service.DataReq
+	messages chan *DistMessage
 	client   service.IPCServiceClient
 	stream   service.IPCService_SendDataClient
 }
@@ -164,17 +164,17 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 	}
 
 	//remote
-	b, err := message.Marshal()
+	/*b, err := message.Marshal()
 	if err != nil {
 		log.Printf("EmitMessage,message.Marshal,err:%s\n", err.Error())
 		return
-	}
+	}*/
 
-	dataR := &service.DataReq{RcvID: int32(tg.componentID),
-		RcvIdx: int32(tg.index),
-		Data:   b}
+	distMessage := &DistMessage{RcvID: int32(tg.componentID),
+		RcvIdx:  int32(tg.index),
+		message: message}
 
-	t.dist[tg.peerIdx].messages <- dataR
+	t.dist[tg.peerIdx].messages <- distMessage
 }
 
 //关闭下游
@@ -255,7 +255,7 @@ func NewTopologyDistBuilder(addrs []string, myIdx int, bufSize int) *TopologyBui
 	tb.dist = make([]*distInfo, 0, len(addrs))
 	for i := 0; i < len(addrs); i++ {
 		di := &distInfo{addr: addrs[i],
-			messages: make(chan *service.DataReq, bufSize)}
+			messages: make(chan *DistMessage, bufSize)}
 		tb.dist = append(tb.dist, di)
 	}
 
@@ -494,16 +494,26 @@ func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerId
 		break
 	}
 
-	var message *service.DataReq
+	var distMessage *DistMessage
+	var dataR *service.DataReq
 	var more bool
 	for {
-		message, more = <-t.dist[peerIdx].messages
+		distMessage, more = <-t.dist[peerIdx].messages
 		if !more {
 			//no more message
 			log.Printf("connectPeer addr:%s receive stop signal", addr)
 			break
 		}
-		t.dist[peerIdx].stream.Send(message)
+
+		b, err := distMessage.message.Marshal()
+		if err != nil {
+			log.Printf("distMessage.message.Marshal(),err:%s\n", err.Error())
+			continue
+		}
+		dataR = &service.DataReq{RcvID: distMessage.RcvID,
+			RcvIdx: distMessage.RcvIdx,
+			Data:   b}
+		t.dist[peerIdx].stream.Send(dataR)
 	}
 }
 
@@ -579,6 +589,7 @@ func (t *TopologyBuilder) Run() {
 	var wg sync.WaitGroup
 	stop := make(chan bool)
 
+	grpc.EnableTracing = false
 	go t.goStartServer(&wg, stop)
 	t.peersPing()
 	t.dealPendGroupings()
