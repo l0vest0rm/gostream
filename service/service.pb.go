@@ -22,9 +22,9 @@ import fmt "fmt"
 import math "math"
 
 import (
-	context "context"
+	context "golang.org/x/net/context"
 
-	grpc "github.com/grpc/grpc"
+	grpc "google.golang.org/grpc"
 )
 
 import io "io"

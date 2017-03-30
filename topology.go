@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/grpc/grpc"
+	"google.golang.org/grpc"
 
 	"net"
 

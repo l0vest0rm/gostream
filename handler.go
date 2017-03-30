@@ -4,7 +4,7 @@ import (
 	"io"
 	"log"
 
-	"context"
+	"golang.org/x/net/context"
 
 	"github.com/l0vest0rm/gostream/service"
 )
