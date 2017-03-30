@@ -3,6 +3,8 @@
 syntax = "proto3";
 package service;
 
+import "google/protobuf/empty.proto";
+
 //is ready response
 message IsReadyRsp {
     bool isReady = 1;
@@ -32,15 +34,18 @@ message DataReq {
     bytes Data = 3;
 }
 
-//EmptyParams no params
-message EmptyParams {}
-
 service IPCService {
-    rpc Ping(EmptyParams) returns (EmptyParams);
-    rpc IsReady(EmptyParams) returns (IsReadyRsp);
+    rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);
+    rpc IsReady(google.protobuf.Empty) returns (IsReadyRsp);
     rpc Grouping(GroupingReq) returns (GroupingRsp);
-    rpc SendData (stream DataReq) returns (EmptyParams);
+    rpc SendData (stream DataReq) returns (google.protobuf.Empty);
 }
 
 //protoc -I service/ service/service.proto --go_out=plugins=grpc:service
 //protoc --gofast_out=plugins=grpc:. service.proto
+
+/*
+func (m *DataReq) GetHashKey(srcPrallelism int, srcIndex int, dstPrallelism int) uint64 {
+	return 0
+}
+*/

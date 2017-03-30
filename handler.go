@@ -4,21 +4,21 @@ import (
 	"io"
 	"log"
 
-	"golang.org/x/net/context"
-
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/l0vest0rm/gostream/service"
+	"golang.org/x/net/context"
 )
 
 type IPCServiceHandler struct {
 	tb *TopologyBuilder
 }
 
-func (t *IPCServiceHandler) Ping(context.Context, *service.EmptyParams) (*service.EmptyParams, error) {
-	var req service.EmptyParams
-	return &req, nil
+func (t *IPCServiceHandler) Ping(context.Context, *empty.Empty) (*empty.Empty, error) {
+	var rsp empty.Empty
+	return &rsp, nil
 }
 
-func (t *IPCServiceHandler) IsReady(context.Context, *service.EmptyParams) (*service.IsReadyRsp, error) {
+func (t *IPCServiceHandler) IsReady(context.Context, *empty.Empty) (*service.IsReadyRsp, error) {
 	rsp := &service.IsReadyRsp{IsReady: t.tb.ready}
 	return rsp, nil
 }

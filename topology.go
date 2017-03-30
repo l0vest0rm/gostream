@@ -15,6 +15,7 @@ import (
 
 	"net"
 
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/l0vest0rm/gostream/service"
 )
 
@@ -526,7 +527,7 @@ func (t *TopologyBuilder) checkDistIsReady() {
 		return
 	}
 
-	var req service.EmptyParams
+	var req empty.Empty
 	//check peers's ready or not
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
@@ -555,7 +556,7 @@ func (t *TopologyBuilder) checkDistIsReady() {
 
 //distributed peers ping,check the connection is ok
 func (t *TopologyBuilder) peersPing() {
-	var req service.EmptyParams
+	var req empty.Empty
 	var err error
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
