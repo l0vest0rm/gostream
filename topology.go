@@ -173,8 +173,11 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 		RcvIdx: int32(tg.index),
 		Data:   b}
 	t.dist[tg.peerIdx].mu.Lock()
-	t.dist[tg.peerIdx].stream.Send(dataR)
+	err = t.dist[tg.peerIdx].stream.Send(dataR)
 	t.dist[tg.peerIdx].mu.Unlock()
+	if err != nil {
+		log.Printf("EmitMessage,err:%s\n", err.Error())
+	}
 }
 
 //关闭下游
@@ -460,29 +463,40 @@ func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool) {
 func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerIdx int) {
 	defer wg.Done()
 
-	log.Printf("connectPeer,peerIdx:%d\n", peerIdx)
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithInsecure())
 	var conn *grpc.ClientConn
 	var err error
+	addr := t.dist[peerIdx].addr
 	for {
-		conn, err = grpc.Dial(t.dist[peerIdx].addr)
-		if err == nil {
-			break
+		conn, err = grpc.Dial(addr, opts...)
+		if err != nil {
+			log.Printf("connectPeer,grpc.Dial,addr:%s,err:%s\n", addr, err.Error())
+			time.Sleep(time.Second)
+			continue
 		}
-		log.Printf("connectPeer,addr:%s,err:%s\n", t.dist[peerIdx].addr, err.Error())
-		time.Sleep(time.Second)
-	}
 
-	client := service.NewIPCServiceClient(conn)
-	if client == nil {
-		//handle error
-		log.Printf("connectPeer,addr:%s,NewClient,err:%s\n", t.dist[peerIdx].addr, err.Error())
-	}
+		client := service.NewIPCServiceClient(conn)
+		if client == nil {
+			//handle error
+			log.Printf("connectPeer,NewIPCServiceClient,addr:%s,err:%s\n", addr, err.Error())
+			time.Sleep(time.Second)
+			continue
+		}
 
-	stream, err := client.SendData(context.Background())
-	t.dist[peerIdx].mu.Lock()
-	t.dist[peerIdx].client = client
-	t.dist[peerIdx].stream = stream
-	t.dist[peerIdx].mu.Unlock()
+		stream, err := client.SendData(context.Background())
+		if err != nil {
+			log.Printf("connectPeer,client.SendData,addr:%s,err:%s\n", addr, err.Error())
+			time.Sleep(time.Second)
+			continue
+		}
+		t.dist[peerIdx].mu.Lock()
+		t.dist[peerIdx].client = client
+		t.dist[peerIdx].stream = stream
+		t.dist[peerIdx].mu.Unlock()
+		log.Printf("connectPeer ok,addr:%s\n", t.dist[peerIdx].addr)
+		break
+	}
 }
 
 //distributed peers sync
@@ -494,6 +508,7 @@ func (t *TopologyBuilder) checkDistIsReady() {
 		return
 	}
 
+	var req service.EmptyParams
 	//check peers's ready or not
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
@@ -504,7 +519,7 @@ func (t *TopologyBuilder) checkDistIsReady() {
 
 			//Ready
 			t.dist[i].mu.Lock()
-			rsp, err := t.dist[i].client.IsReady(context.Background(), nil)
+			rsp, err := t.dist[i].client.IsReady(context.Background(), &req)
 			t.dist[i].mu.Unlock()
 			if err != nil {
 				log.Printf("distSync,Call IsReady,err:%s\n", err.Error())
@@ -522,6 +537,7 @@ func (t *TopologyBuilder) checkDistIsReady() {
 
 //distributed peers ping,check the connection is ok
 func (t *TopologyBuilder) peersPing() {
+	var req service.EmptyParams
 	var err error
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
@@ -538,7 +554,7 @@ func (t *TopologyBuilder) peersPing() {
 			}
 
 			//Ping
-			_, err = t.dist[i].client.Ping(context.Background(), nil)
+			_, err = t.dist[i].client.Ping(context.Background(), &req)
 			t.dist[i].mu.Unlock()
 			if err != nil {
 				log.Printf("peersPing,Ping,err:%s\n", err.Error())

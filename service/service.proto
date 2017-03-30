@@ -43,3 +43,4 @@ service IPCService {
 }
 
 //protoc -I service/ service/service.proto --go_out=plugins=grpc:service
+//protoc --gofast_out=plugins=grpc:. service.proto

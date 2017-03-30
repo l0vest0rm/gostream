@@ -14,7 +14,8 @@ type IPCServiceHandler struct {
 }
 
 func (t *IPCServiceHandler) Ping(context.Context, *service.EmptyParams) (*service.EmptyParams, error) {
-	return nil, nil
+	var req service.EmptyParams
+	return &req, nil
 }
 
 func (t *IPCServiceHandler) IsReady(context.Context, *service.EmptyParams) (*service.IsReadyRsp, error) {
