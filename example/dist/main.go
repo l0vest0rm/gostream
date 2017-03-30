@@ -40,7 +40,7 @@ func main() {
 		panic(fmt.Sprintf("wrong os.Args:%v", os.Args))
 	}
 	addrs := []string{"127.0.0.1:9001", "127.0.0.1:9002"}
-	builder := gostream.NewTopologyDistBuilder(addrs, myIdx)
+	builder := gostream.NewTopologyDistBuilder(addrs, myIdx, 10000)
 	builder.SetSpout(componentIDMySpout, NewMySpout(), 4)
 	bolt := builder.SetBolt(componentIDMyBolt, NewMyBolt(), 4, 1000)
 	bolt.KeyGrouping(componentIDMySpout, streamIDDefault)

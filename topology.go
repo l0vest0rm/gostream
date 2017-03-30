@@ -73,10 +73,11 @@ type GroupInfo struct {
 }
 
 type distInfo struct {
-	mu     sync.RWMutex
-	addr   string // addr
-	client service.IPCServiceClient
-	stream service.IPCService_SendDataClient
+	mu       sync.RWMutex
+	addr     string // addr
+	messages chan *service.DataReq
+	client   service.IPCServiceClient
+	stream   service.IPCService_SendDataClient
 }
 
 // TopologyBuilder topo struct
@@ -172,12 +173,8 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 	dataR := &service.DataReq{RcvID: int32(tg.componentID),
 		RcvIdx: int32(tg.index),
 		Data:   b}
-	t.dist[tg.peerIdx].mu.Lock()
-	err = t.dist[tg.peerIdx].stream.Send(dataR)
-	t.dist[tg.peerIdx].mu.Unlock()
-	if err != nil {
-		log.Printf("EmitMessage,err:%s\n", err.Error())
-	}
+
+	t.dist[tg.peerIdx].messages <- dataR
 }
 
 //关闭下游
@@ -247,7 +244,7 @@ func NewTopologyBuilder() *TopologyBuilder {
 }
 
 // NewTopologyDistBuilder new one
-func NewTopologyDistBuilder(addrs []string, myIdx int) *TopologyBuilder {
+func NewTopologyDistBuilder(addrs []string, myIdx int, bufSize int) *TopologyBuilder {
 	tb := NewTopologyBuilder()
 	if addrs == nil || len(addrs) < 2 {
 		return tb
@@ -257,7 +254,8 @@ func NewTopologyDistBuilder(addrs []string, myIdx int) *TopologyBuilder {
 	tb.myIdx = myIdx
 	tb.dist = make([]*distInfo, 0, len(addrs))
 	for i := 0; i < len(addrs); i++ {
-		di := &distInfo{addr: addrs[i]}
+		di := &distInfo{addr: addrs[i],
+			messages: make(chan *service.DataReq, bufSize)}
 		tb.dist = append(tb.dist, di)
 	}
 
@@ -430,8 +428,6 @@ func (t *TopologyBuilder) dealPendGroupings() {
 }
 
 func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool) {
-	defer wg.Done()
-
 	if t.dist == nil {
 		return
 	}
@@ -496,6 +492,18 @@ func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerId
 		t.dist[peerIdx].mu.Unlock()
 		log.Printf("connectPeer ok,addr:%s\n", t.dist[peerIdx].addr)
 		break
+	}
+
+	var message *service.DataReq
+	var more bool
+	for {
+		message, more = <-t.dist[peerIdx].messages
+		if !more {
+			//no more message
+			log.Printf("connectPeer addr:%s receive stop signal", addr)
+			break
+		}
+		t.dist[peerIdx].stream.Send(message)
 	}
 }
 
