@@ -19,6 +19,11 @@
 package main
 
 import (
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+
 	"github.com/l0vest0rm/gostream"
 )
 
@@ -29,10 +34,17 @@ const (
 )
 
 func main() {
+	if len(os.Args) < 2 {
+		log.Printf("usage: ./perftest <parallelism>")
+	}
 
+	parallelism, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		panic(fmt.Sprintf("wrong os.Args:%v", os.Args))
+	}
 	builder := gostream.NewTopologyBuilder()
-	builder.SetSpout(componentIDMySpout, NewMySpout(), 4)
-	bolt := builder.SetBolt(componentIDMyBolt, NewMyBolt(), 4, 1000)
+	builder.SetSpout(componentIDMySpout, NewMySpout(), parallelism)
+	bolt := builder.SetBolt(componentIDMyBolt, NewMyBolt(), parallelism, 1000)
 	bolt.KeyGrouping(componentIDMySpout, streamIDDefault)
 	builder.Run()
 }
