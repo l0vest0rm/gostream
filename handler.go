@@ -1,28 +1,28 @@
 package gostream
 
 import (
+	"io"
 	"log"
 
-	"github.com/l0vest0rm/gostream/rpc"
+	"golang.org/x/net/context"
+
+	"github.com/l0vest0rm/gostream/service"
 )
 
-type ServiceHandler struct {
+type IPCServiceHandler struct {
 	tb *TopologyBuilder
 }
 
-func NewServiceHandler(tb *TopologyBuilder) *ServiceHandler {
-	return &ServiceHandler{tb: tb}
+func (t *IPCServiceHandler) Ping(context.Context, *service.EmptyParams) (*service.EmptyParams, error) {
+	return nil, nil
 }
 
-func (t *ServiceHandler) Ping() (err error) {
-	return nil
+func (t *IPCServiceHandler) IsReady(context.Context, *service.EmptyParams) (*service.IsReadyRsp, error) {
+	rsp := &service.IsReadyRsp{IsReady: t.tb.ready}
+	return rsp, nil
 }
 
-func (t *ServiceHandler) IsReady() (r bool, err error) {
-	return t.tb.ready, nil
-}
-
-func (t *ServiceHandler) Grouping(req *rpc.GroupingRequest) (r int32, err error) {
+func (t *IPCServiceHandler) Grouping(ctx context.Context, req *service.GroupingReq) (*service.GroupingRsp, error) {
 	log.Printf("RpcGrouping,gi:%v\n", req)
 	if t.tb.commons[int(req.SndID)].streams == nil {
 		t.tb.commons[int(req.SndID)].streams = make([]*StreamInfo, 0, int(req.StreamID)+1)
@@ -44,11 +44,24 @@ func (t *ServiceHandler) Grouping(req *rpc.GroupingRequest) (r int32, err error)
 		t.tb.commons[int(req.SndID)].streams[int(req.StreamID)].targets = append(t.tb.commons[int(req.SndID)].streams[int(req.StreamID)].targets, tg)
 	}
 
-	r = int32(t.tb.commons[int(req.SndID)].parallelism)
-	return r, nil
+	rsp := &service.GroupingRsp{Parallelism: int32(t.tb.commons[int(req.SndID)].parallelism)}
+	return rsp, nil
 }
 
-func (t *ServiceHandler) SendData(req *rpc.DataRequest) (err error) {
-	t.tb.commons[int(req.RcvID)].tasks[int(req.RcvIdx)].messages <- req
+func (t *IPCServiceHandler) SendData(stream service.IPCService_SendDataServer) error {
+	//t.tb.commons[int(req.RcvID)].tasks[int(req.RcvIdx)].messages <- req
+	var dataR *service.DataReq
+	var err error
+	for {
+		dataR, err = stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(nil)
+		}
+		if err != nil {
+			return err
+		}
+		t.tb.commons[int(dataR.RcvID)].tasks[int(dataR.RcvIdx)].messages <- dataR
+	}
+
 	return nil
 }

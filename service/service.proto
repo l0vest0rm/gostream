@@ -1,0 +1,45 @@
+
+
+syntax = "proto3";
+package service;
+
+//is ready response
+message IsReadyRsp {
+    bool isReady = 1;
+}
+
+//grouping request
+message GroupingReq {
+    int32 peerIdx = 1;
+    int32 rcvID = 2;
+    int32 rcvParallelism = 3;
+    int32 sndID = 4;
+    int32 streamID = 5;
+    int32 groupingType = 6;
+}
+
+
+//grouping response
+message GroupingRsp {
+    int32 parallelism = 1;
+}
+
+
+//data request
+message DataReq {
+    int32 rcvID = 1;
+    int32 RcvIdx = 2;
+    bytes Data = 3;
+}
+
+//EmptyParams no params
+message EmptyParams {}
+
+service IPCService {
+    rpc Ping(EmptyParams) returns (EmptyParams);
+    rpc IsReady(EmptyParams) returns (IsReadyRsp);
+    rpc Grouping(GroupingReq) returns (GroupingRsp);
+    rpc SendData (stream DataReq) returns (EmptyParams);
+}
+
+//protoc -I service/ service/service.proto --go_out=plugins=grpc:service

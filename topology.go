@@ -1,6 +1,7 @@
 package gostream
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -10,8 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"git.apache.org/thrift.git/lib/go/thrift"
-	"github.com/l0vest0rm/gostream/rpc"
+	"google.golang.org/grpc"
+
+	"net"
+
+	"github.com/l0vest0rm/gostream/service"
 )
 
 const (
@@ -71,7 +75,8 @@ type GroupInfo struct {
 type distInfo struct {
 	mu     sync.RWMutex
 	addr   string // addr
-	client *rpc.ServiceClient
+	client service.IPCServiceClient
+	stream service.IPCService_SendDataClient
 }
 
 // TopologyBuilder topo struct
@@ -164,10 +169,12 @@ func (t *TopologyBuilder) EmitMessage(message Message, tg *targetInfo) {
 		return
 	}
 
-	dataR := &rpc.DataRequest{RcvID: int32(tg.componentID),
+	dataR := &service.DataReq{RcvID: int32(tg.componentID),
 		RcvIdx: int32(tg.index),
 		Data:   b}
-	t.dist[tg.peerIdx].client.SendData(dataR)
+	t.dist[tg.peerIdx].mu.Lock()
+	t.dist[tg.peerIdx].stream.Send(dataR)
+	t.dist[tg.peerIdx].mu.Unlock()
 }
 
 //关闭下游
@@ -359,12 +366,14 @@ func (t *TopologyBuilder) grouping(gi *GroupInfo) {
 func (t *TopologyBuilder) groupingRemote(gi *GroupInfo) {
 	log.Println("groupingRemote")
 	var err error
-	var reply int32
+	var rsp *service.GroupingRsp
 
-	req := &rpc.GroupingRequest{PeerIdx: int32(gi.PeerIdx),
+	req := &service.GroupingReq{PeerIdx: int32(gi.PeerIdx),
 		RcvID:          int32(gi.RcvID),
 		RcvParallelism: int32(gi.RcvParallelism),
-		SndID:          int32(gi.SndID)}
+		SndID:          int32(gi.SndID),
+		StreamID:       int32(gi.StreamID),
+		GroupingType:   int32(gi.GroupingType)}
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
 		for {
@@ -373,13 +382,13 @@ func (t *TopologyBuilder) groupingRemote(gi *GroupInfo) {
 			}
 
 			t.dist[i].mu.Lock()
-			reply, err = t.dist[i].client.Grouping(req)
+			rsp, err = t.dist[i].client.Grouping(context.Background(), req)
 			t.dist[i].mu.Unlock()
 			if err != nil {
 				panic(fmt.Sprintf("groupingRemote,call,err:%s", err.Error()))
 			}
 			for i := 0; i < t.commons[gi.RcvID].parallelism; i++ {
-				t.commons[gi.RcvID].tasks[i].dependentCnt += int(reply)
+				t.commons[gi.RcvID].tasks[i].dependentCnt += int(rsp.Parallelism)
 			}
 			log.Printf("groupingRemote,success,gi:%v", gi)
 			break
@@ -417,7 +426,7 @@ func (t *TopologyBuilder) dealPendGroupings() {
 	}
 }
 
-func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool, transportFactory thrift.TTransportFactory, protocolFactory thrift.TProtocolFactory) {
+func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool) {
 	defer wg.Done()
 
 	if t.dist == nil {
@@ -431,52 +440,53 @@ func (t *TopologyBuilder) goStartServer(wg *sync.WaitGroup, stop chan bool, tran
 		}
 
 		wg.Add(1)
-		go t.connectPeer(wg, stop, i, transportFactory, protocolFactory)
+		go t.connectPeer(wg, stop, i)
 	}
 
-	//var transport thrift.TServerTransport
-	transport, err := thrift.NewTServerSocket(t.dist[t.myIdx].addr)
+	myAddr := t.dist[t.myIdx].addr
+	ln, err := net.Listen("tcp", myAddr)
 	if err != nil {
-		panic(fmt.Sprintf("NewTServerSocket,err:%s\n", err.Error()))
+		panic(fmt.Sprintf("net.Listen,addr:%s,err:%s\n", myAddr, err.Error()))
 	}
-	handler := NewServiceHandler(t)
-	processor := rpc.NewServiceProcessor(handler)
-	server := thrift.NewTSimpleServer4(processor, transport, transportFactory, protocolFactory)
-	log.Println("Starting the simple server... on ", t.dist[t.myIdx].addr)
-	server.Serve()
+	defer ln.Close()
+
+	handler := &IPCServiceHandler{tb: t}
+	grpcServer := grpc.NewServer()
+	service.RegisterIPCServiceServer(grpcServer, handler)
+	grpcServer.Serve(ln)
 }
 
 // connectPeer connect other peer
-func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerIdx int, transportFactory thrift.TTransportFactory, protocolFactory thrift.TProtocolFactory) {
+func (t *TopologyBuilder) connectPeer(wg *sync.WaitGroup, stop chan bool, peerIdx int) {
 	defer wg.Done()
 
-	var transport thrift.TTransport
 	log.Printf("connectPeer,peerIdx:%d\n", peerIdx)
+	var conn *grpc.ClientConn
 	var err error
 	for {
-		transport, err = thrift.NewTSocket(t.dist[peerIdx].addr)
-		transport = transportFactory.GetTransport(transport)
-		if err := transport.Open(); err == nil {
-			// ok
+		conn, err = grpc.Dial(t.dist[peerIdx].addr)
+		if err == nil {
 			break
 		}
 		log.Printf("connectPeer,addr:%s,err:%s\n", t.dist[peerIdx].addr, err.Error())
 		time.Sleep(time.Second)
 	}
 
-	client := rpc.NewServiceClientFactory(transport, protocolFactory)
+	client := service.NewIPCServiceClient(conn)
 	if client == nil {
 		//handle error
 		log.Printf("connectPeer,addr:%s,NewClient,err:%s\n", t.dist[peerIdx].addr, err.Error())
 	}
 
+	stream, err := client.SendData(context.Background())
 	t.dist[peerIdx].mu.Lock()
 	t.dist[peerIdx].client = client
+	t.dist[peerIdx].stream = stream
 	t.dist[peerIdx].mu.Unlock()
 }
 
 //distributed peers sync
-func (t *TopologyBuilder) distSync() {
+func (t *TopologyBuilder) checkDistIsReady() {
 	t.mu.Lock()
 	t.ready = true
 	t.mu.Unlock()
@@ -485,8 +495,6 @@ func (t *TopologyBuilder) distSync() {
 	}
 
 	//check peers's ready or not
-	var err error
-	var ready bool
 	for i := 0; i < len(t.dist); i++ {
 		//loop for client connected
 		for {
@@ -496,7 +504,7 @@ func (t *TopologyBuilder) distSync() {
 
 			//Ready
 			t.dist[i].mu.Lock()
-			ready, err = t.dist[i].client.IsReady()
+			rsp, err := t.dist[i].client.IsReady(context.Background(), nil)
 			t.dist[i].mu.Unlock()
 			if err != nil {
 				log.Printf("distSync,Call IsReady,err:%s\n", err.Error())
@@ -504,7 +512,7 @@ func (t *TopologyBuilder) distSync() {
 				continue
 			}
 
-			if ready {
+			if rsp.IsReady {
 				break
 			}
 		}
@@ -530,7 +538,7 @@ func (t *TopologyBuilder) peersPing() {
 			}
 
 			//Ping
-			err = t.dist[i].client.Ping()
+			_, err = t.dist[i].client.Ping(context.Background(), nil)
 			t.dist[i].mu.Unlock()
 			if err != nil {
 				log.Printf("peersPing,Ping,err:%s\n", err.Error())
@@ -547,12 +555,10 @@ func (t *TopologyBuilder) Run() {
 	var wg sync.WaitGroup
 	stop := make(chan bool)
 
-	transportFactory := thrift.NewTBufferedTransportFactory(8192)
-	protocolFactory := thrift.NewTBinaryProtocolFactoryDefault()
-	go t.goStartServer(&wg, stop, transportFactory, protocolFactory)
+	go t.goStartServer(&wg, stop)
 	t.peersPing()
 	t.dealPendGroupings()
-	t.distSync()
+	t.checkDistIsReady()
 	t.startSpouts(&wg, stop)
 	t.startBolts(&wg)
 
