@@ -92,7 +92,8 @@ func (t *HbasePutBolt) Execute(message gostream.Message) {
             }
 		}
 
-		time.Sleep(time.Second * 7)
+    t.hc.Close()
+    time.Sleep(time.Second * 7)
 		t.hc, err = hbase.NewClient(t.zkHosts, "/hbase")
 		if err != nil {
             log.Errorf("hbase.NewClient,err:%s", err.Error())
